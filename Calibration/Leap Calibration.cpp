@@ -24,8 +24,9 @@ static const int  BOARD_N  = BOARD_W * BOARD_H;
 // ---------------------------------------------------------------------------
 // Persistent calibration data.
 // These MUST live at file scope so they accumulate across many image-event
-// callbacks.  The original code had them local to the listener callback,
-// which reset them to empty on every frame, making calibration impossible.
+// callbacks. If they were local to the callback they would be re-initialised
+// to empty on every frame, making calibration impossible (no boards would
+// ever accumulate to the required NUM_BOARDS threshold).
 // ---------------------------------------------------------------------------
 static vector<vector<Point3f>> object_points;
 static vector<vector<Point2f>> imagePoints1, imagePoints2;

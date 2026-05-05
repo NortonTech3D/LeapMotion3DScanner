@@ -67,6 +67,7 @@
 #include <pcl/console/parse.h>
 #include <atomic>
 #include <chrono>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -555,18 +556,34 @@ void readfile(vector<string> &filenames, string folder)
 */
 int main()
 {
-	/*String folder = "streamingData";
-	vector<string> filenames;
-	create_directory("streamingData");
+	// Open the LeapC connection and enable image streaming
+	// Create output directories before starting capture
+	std::filesystem::create_directories("streamingData/distortData");
 
-	SampleListener listener;
-	Controller leap;
+	eLeapRS res = LeapCreateConnection(nullptr, &g_connection);
+	if (res != eLeapRS_Success) {
+		cerr << "LeapCreateConnection failed: " << res << endl;
+		return 1;
+	}
+	res = LeapOpenConnection(g_connection);
+	if (res != eLeapRS_Success) {
+		cerr << "LeapOpenConnection failed: " << res << endl;
+		LeapDestroyConnection(g_connection);
+		return 1;
+	}
+	LeapSetPolicyFlags(g_connection, eLeapPolicyFlag_Images, 0);
 
-	leap.setPolicy(Leap::Controller::POLICY_IMAGES);
-	leap.addListener(listener);
+	g_running = true;
+	thread poller(pollThread);
+
+	// Wait for the user to press Enter, then stop capturing
 	cin.get();
-	leap.removeListener(listener);
-	*/
+
+	g_running = false;
+	poller.join();
+	LeapCloseConnection(g_connection);
+	LeapDestroyConnection(g_connection);
+
 	//sample image of left and right camera
 	//String left = "Left_1.jpg";
 	//String right ="Right_1.jpg";
@@ -592,10 +609,8 @@ int main()
 	//openpcd("pencil45.png");
 	//string pcdfile = "openpcd.pcd";
 	//cloud_viewer(pcdfile);
-	waitKey(0);
 
 	//destroyAllWindows();
-	
 
 	//3D surface construction on triangulated point clouds
 	//Triangulation_viwer("custom1.pcd");

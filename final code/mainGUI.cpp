@@ -361,6 +361,7 @@ void Main_func_call(){
 		LeapDestroyConnection(g_connection);
 		return;
 	}
+	LeapSetPolicyFlags(g_connection, eLeapPolicyFlag_Images, 0);
 	g_running = true;
 	thread poll(pollThread);
 
@@ -371,9 +372,9 @@ void Main_func_call(){
 	LeapCloseConnection(g_connection);
 	LeapDestroyConnection(g_connection);
 
-	// sample image of left and right camera
-	String left = "Right_1.tiff";
-	String right = "Left_1.tiff";
+	// sample images of left and right camera
+	String left = "Left_1.tiff";
+	String right = "Right_1.tiff";
 
 	// left camera image pass to distortion function
 	//String image1 = distortion(left);

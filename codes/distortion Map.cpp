@@ -107,7 +107,10 @@ static void applyDistortionMap(const LEAP_IMAGE_EVENT* image_event)
                     destination[px][py] = raw[denormalizedX + denormalizedY * width];
                 } else {
                     // Pixel maps outside the valid sensor area — output black.
-                    // Original code used -1 which wraps silently to 255 for unsigned char.
+                    // (The original Leap++ SDK code stored -1 into an unsigned char
+                    // destination, which, while well-defined for unsigned arithmetic,
+                    // produced 255 — a bright pixel rather than black. Storing 0 is
+                    // the correct behaviour for an out-of-range sensor position.)
                     destination[px][py] = 0;
                 }
             }

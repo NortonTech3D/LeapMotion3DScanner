@@ -47,10 +47,11 @@ endif()
 find_package(OpenCV REQUIRED COMPONENTS
     core calib3d highgui imgproc imgcodecs features2d
 )
-# ximgproc lives in opencv_contrib; find it separately so the build does not
-# fail when it is absent (Filter.cpp and fypCode.cpp need it).
-find_package(OpenCV QUIET COMPONENTS ximgproc)
-if(OpenCV_ximgproc_FOUND OR TARGET opencv_ximgproc)
+# ximgproc lives in opencv_contrib. After the find_package call above, all
+# installed OpenCV targets (including opencv_contrib ones) are already
+# imported into the build. A second find_package call is not needed and can
+# corrupt OpenCV_FOUND when ximgproc is absent. Just check the target.
+if(TARGET opencv_ximgproc)
     set(HAVE_XIMGPROC TRUE)
     message(STATUS "OpenCV ximgproc found — disparity-filter targets will be built")
 else()
