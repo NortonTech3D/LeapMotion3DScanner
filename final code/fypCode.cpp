@@ -44,7 +44,7 @@
 *
 */
 
-#include <opencv2\opencv.hpp>
+#include <opencv2/opencv.hpp>
 #include <iostream>
 #include <pcl/visualization/cloud_viewer.h>
 #include <pcl/io/io.h>
@@ -54,12 +54,12 @@
 #include <pcl/features/normal_3d.h>
 #include <pcl/surface/gp3.h>
 #include <pcl/io/vtk_io.h>
-#include <boost/thread/thread.hpp>
+#include <memory>
 #include <pcl/common/common_headers.h>
 #include <pcl/visualization/pcl_visualizer.h>
 #include <pcl/console/parse.h>
 #include <pcl/io/ply_io.h>
-#include <pcl\io\vtk_lib_io.h>
+#include <pcl/io/vtk_lib_io.h>
 #include <opencv2/core/core.hpp>
 #include <opencv2/calib3d/calib3d.hpp>
 #include <opencv2/highgui/highgui.hpp>
@@ -72,14 +72,13 @@
 #include "opencv2/core/utility.hpp"
 #include "opencv2/ximgproc/disparity_filter.hpp"
 
-#include <cstdlib>
-#include <sstream>
-#include <string>
+#include <atomic>
+#include <thread>
+#include <chrono>
 #include "opencv2/features2d/features2d.hpp"
-#include "Leap.h"
+#include "LeapC.h"
 
 
-using namespace Leap;
 using namespace std;
 using namespace pcl;
 using namespace cv;
@@ -88,16 +87,86 @@ using namespace cv::ximgproc;
 static int ct = 0;
 static int counter = 0;
 
-class SampleListener : public Listener
-{
-public:
-	virtual void onInit(const Controller&);
-	virtual void onConnect(const Controller&);
-	virtual void onDisconnect(const Controller&);
-	virtual void onExit(const Controller&);
-	virtual void onImages(const Controller&);
+// Pre-allocated image buffer: 640x240 per camera, 2 cameras.
+static const uint32_t CAMERA_WIDTH  = 640;
+static const uint32_t CAMERA_HEIGHT = 240;
+static const uint64_t IMAGE_BUFFER_SIZE = CAMERA_WIDTH * CAMERA_HEIGHT * 2;
+static std::vector<uint8_t> g_image_buffer(IMAGE_BUFFER_SIZE);
 
-};
+static LEAP_CONNECTION g_connection;
+static std::atomic<bool> g_running(false);
+
+// Forward declarations for processing functions defined later in this file
+void distortion(String image);
+void disparity(String leftImage, String rightImage);
+
+static void handleImageEvent(const LEAP_IMAGE_EVENT* image_event)
+{
+    uint32_t width  = image_event->image[0].properties.width;
+    uint32_t height = image_event->image[0].properties.height;
+
+    const uint8_t* left_pixels  = g_image_buffer.data() + image_event->image[0].offset;
+    const uint8_t* right_pixels = g_image_buffer.data() + image_event->image[1].offset;
+
+    // Clone before any I/O since the buffer is reused each frame
+    Mat leftMat  = Mat(height, width, CV_8UC1, const_cast<uint8_t*>(left_pixels)).clone();
+    Mat rightMat = Mat(height, width, CV_8UC1, const_cast<uint8_t*>(right_pixels)).clone();
+
+    stringstream ss1, ss2;
+    string type = ".jpg";
+    ss1 << (ct + 1) << type;
+    ss2 << (ct + 1) << type;
+    string filename1 = ss1.str();
+    string filename2 = ss2.str();
+
+    Mat big(Size(1280, 240), CV_8UC1);
+    leftMat.copyTo(big(cv::Rect(0, 0, 640, 240)));
+    rightMat.copyTo(big(cv::Rect(640, 0, 640, 240)));
+
+    imshow("Video Streaming", big);
+    waitKey(10);
+
+    imwrite("streamingData/" + filename1, leftMat);
+    imwrite("streamingData/" + filename2, rightMat);
+
+    counter++;
+    ct++;
+}
+
+static void pollThread()
+{
+    while (g_running) {
+        LEAP_CONNECTION_MESSAGE msg;
+        eLeapRS result = LeapPollConnection(g_connection, 100, &msg);
+        if (result != eLeapRS_Success)
+            continue;
+
+        switch (msg.type) {
+        case eLeapEventType_Connection:
+            cout << "Connected" << endl;
+            break;
+        case eLeapEventType_ConnectionLost:
+            cout << "Disconnected" << endl;
+            g_running = false;
+            break;
+        case eLeapEventType_Device:
+            cout << "Device found" << endl;
+            break;
+        case eLeapEventType_Tracking: {
+            uint64_t frame_id = msg.tracking_event->info.frame_id;
+            LeapRequestImages(g_connection, frame_id, eLeapImageType_Default,
+                              g_image_buffer.data(), IMAGE_BUFFER_SIZE);
+            break;
+        }
+        case eLeapEventType_Image:
+            handleImageEvent(msg.image_event);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
 
 void SampleListener::onInit(const Controller& controller)
 {
@@ -152,8 +221,8 @@ void SampleListener::onImages(const Controller& controller)
 		//imshow("rightMat", rightMat);
 		waitKey(10);
 		
-		imwrite("streamingData\\" + filename1, leftMat);
-		imwrite("streamingData\\" + filename2, rightMat);
+		imwrite("streamingData/" + filename1, leftMat);
+		imwrite("streamingData/" + filename2, rightMat);
 
 	}
 	counter++;
@@ -169,7 +238,7 @@ void SampleListener::onExit(const Controller& controller)
 
 void distortion(String image){
 
-	Mat ImageMat = imread(image, CV_32FC1);
+	Mat ImageMat = imread(image, IMREAD_COLOR);
 
 	imshow("initial", ImageMat);
 	waitKey(20);
@@ -206,8 +275,8 @@ void distortion(String image){
 
 	// interpolate those values for each of your original images pixel:
 	// here I use linear interpolation, you could use cubic or other interpolation too.
-	resize(cMapMatX, cMapMatX, ImageMat.size(), 0, 0, CV_INTER_LINEAR);
-	resize(cMapMatY, cMapMatY, ImageMat.size(), 0, 0, CV_INTER_LINEAR);
+	resize(cMapMatX, cMapMatX, ImageMat.size(), 0, 0, INTER_LINEAR);
+	resize(cMapMatY, cMapMatY, ImageMat.size(), 0, 0, INTER_LINEAR);
 
 
 	// now the calibration map has the size of your original image, but its values are still between 0 and 1 (for legal positions)
@@ -250,7 +319,7 @@ void distortion(String image){
 	string filename = ss.str();
 	imshow("undistorted", output);
 
-	imwrite("streamingData\\distortData\\" + filename, output);
+	imwrite("streamingData/distortData\\" + filename, output);
 	ct++;
 	waitKey(100);
 }
@@ -272,8 +341,8 @@ void disparity(String leftImage, String rightImage)
 	//int numberOfDisparities = 16*3;
 	Mat disp, disp8;
 
-	Mat left = imread(leftImage, CV_8U);
-	Mat right = imread(rightImage, CV_8U);
+	Mat left = imread(leftImage, IMREAD_GRAYSCALE);
+	Mat right = imread(rightImage, IMREAD_GRAYSCALE);
 
 	Mat left_for_matcher, right_for_matcher;
 	Mat left_disp, right_disp;
@@ -335,7 +404,7 @@ void disparity(String leftImage, String rightImage)
 	getDisparityVis(filtered_disp, filtered_disp_vis, vis_mult);
 	namedWindow("filtered disparity", WINDOW_AUTOSIZE);
 	imshow("filtered disparity", filtered_disp_vis);
-	imwrite("streamingData\\filtered_disparity3.jpg", filtered_disp_vis);
+	imwrite("streamingData/filtered_disparity3.jpg", filtered_disp_vis);
 	waitKey(0);
 
 	//disp.convertTo(disp8, CV_8U);
@@ -383,7 +452,7 @@ String disparity(String left, String right){
 	sgbm(img1, img2, disp);
 	
 	waitKey(500);
-	normalize(disp, disp8, 0, 255, CV_MINMAX, CV_32FC1);
+	normalize(disp, disp8, 0, 255, NORM_MINMAX, CV_32FC1);
 	waitKey(100);
 	imshow("left", img1);
 	imshow("right", img2);
@@ -400,7 +469,7 @@ String disparity(String left, String right){
 
 String pcd_writer(String pcdname){
 	pcl::PointCloud<pcl::PointXYZ> cloud;
-	Mat depth_image = cv::imread(pcdname, CV_LOAD_IMAGE_ANYDEPTH | CV_LOAD_IMAGE_ANYCOLOR);
+	Mat depth_image = cv::imread(pcdname, IMREAD_ANYDEPTH | IMREAD_ANYCOLOR);
 	depth_image.convertTo(depth_image, CV_32F); // convert the image data to float type 
 
 	if (!depth_image.data)
@@ -448,7 +517,7 @@ void cloud_viewer(String viewername){
 }
 void openpcd(string name)
 {
-	Mat depth_image = cv::imread(name, CV_LOAD_IMAGE_ANYDEPTH | CV_LOAD_IMAGE_ANYCOLOR);
+	Mat depth_image = cv::imread(name, IMREAD_ANYDEPTH | IMREAD_ANYCOLOR);
 	depth_image.convertTo(depth_image, CV_32F);
 	const double max_z = 1.0e4;
 	FILE* fp = fopen("openpcd.pcd", "wt");
@@ -528,7 +597,7 @@ void Triangulation_viwer(String pcdname){
 	// Finish
 
 
-	boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("3D Viewer"));
+	std::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("3D Viewer"));
 
 	pcl::PolygonMesh::Ptr mesh(new pcl::PolygonMesh);
 	pcl::io::loadPolygonFileVTK("custom1.vtk", *mesh);
