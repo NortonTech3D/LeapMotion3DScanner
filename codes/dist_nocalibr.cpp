@@ -1,20 +1,17 @@
 #include <iostream>
-#include "Leap.h"
 #include "opencv2/features2d/features2d.hpp"
 #include "opencv2/core/core.hpp"
 #include "opencv2/calib3d/calib3d.hpp"
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
-#include "opencv2/contrib/contrib.hpp"
 
 using namespace std;
-using namespace Leap;
 using namespace cv;
 
 int main()
 {
 	String filename = "Right9.jpg";
-	Mat leftMat = imread(filename,CV_32FC1);
+	Mat leftMat = imread(filename, IMREAD_COLOR);
 
 	imshow("initial", leftMat);
 	waitKey(20);
@@ -51,8 +48,8 @@ int main()
 
 	// interpolate those values for each of your original images pixel:
 	// here I use linear interpolation, you could use cubic or other interpolation too.
-	resize(cMapMatX, cMapMatX, leftMat.size(), 0, 0, CV_INTER_LINEAR);
-	resize(cMapMatY, cMapMatY, leftMat.size(), 0, 0, CV_INTER_LINEAR);
+	resize(cMapMatX, cMapMatX, leftMat.size(), 0, 0, INTER_LINEAR);
+	resize(cMapMatY, cMapMatY, leftMat.size(), 0, 0, INTER_LINEAR);
 
 
 	// now the calibration map has the size of your original image, but its values are still between 0 and 1 (for legal positions)

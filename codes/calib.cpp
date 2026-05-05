@@ -4,21 +4,20 @@
 #include "opencv2/calib3d/calib3d.hpp"
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
-#include "opencv2/contrib/contrib.hpp"
 
 using namespace cv;
 using namespace std;
 
 int main()
 {
-	Mat img = imread("left_167.JPG", CV_LOAD_IMAGE_UNCHANGED); 
+	Mat img = imread("left_167.JPG", IMREAD_UNCHANGED); 
 	if (img.empty()) 
 	{
 		cout << "Error : Image cannot be loaded..!!" << endl;
 		return -1;
 	}
 
-	namedWindow("MyWindow", CV_WINDOW_AUTOSIZE); 
+	namedWindow("MyWindow", WINDOW_AUTOSIZE); 
 	imshow("MyWindow", img); 
 
 
@@ -45,7 +44,7 @@ int main()
 
 	if (found)
 	{
-		cornerSubPix(img, corners, Size(11, 11), Size(-1, -1), TermCriteria(CV_TERMCRIT_EPS | CV_TERMCRIT_ITER, 30, 0.1));
+		cornerSubPix(img, corners, Size(11, 11), Size(-1, -1), TermCriteria(TermCriteria::EPS | TermCriteria::MAX_ITER, 30, 0.1));
 		drawChessboardCorners(img, board_sz, corners, found);
 	}
 	imshow("win1", img);

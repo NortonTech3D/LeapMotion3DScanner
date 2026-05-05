@@ -2,7 +2,6 @@
 #include <opencv2/calib3d/calib3d.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
-#include <opencv2/contrib/contrib.hpp>
 #include <stdio.h>
 #include <string.h>
 #include <iostream>
@@ -14,7 +13,7 @@ int main()
 {
 	Mat img1, img2;
 	Mat leftMat, rightMat;
-	img1 = imread("tsukuba.png", CV_8UC1);
+	img1 = imread("tsukuba.png", IMREAD_GRAYSCALE);
 	//img2 = imread("Right1.jpg", CV_8UC1);
 	
 	Mat CM1 = Mat(3, 3, CV_32FC1);
@@ -36,8 +35,8 @@ int main()
 	
 	
 	
-	stereoRectify(CM1, D1, CM2, D2, img1.size(), R, T, R1, R2, P1, P2, Q,CV_CALIB_ZERO_DISPARITY , -1);
-	fs.open("test2.yml", CV_STORAGE_WRITE);
+	stereoRectify(CM1, D1, CM2, D2, img1.size(), R, T, R1, R2, P1, P2, Q, CALIB_ZERO_DISPARITY, 1);
+	fs.open("test2.yml", FileStorage::WRITE);
 	if (fs.isOpened())
 	{
 		fs << "R" << R << "T" << T << "R1" << R1 << "R2" << R2 << "P1" << P1 << "P2" << P2 << "Q" << Q;

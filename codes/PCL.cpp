@@ -6,7 +6,6 @@
 #include <opencv2/calib3d/calib3d.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
-#include <opencv2/contrib/contrib.hpp>
 #include <stdio.h>
 #include <string.h>
 #include <iostream>
@@ -17,7 +16,7 @@ using namespace cv;
 
 void pcd_writer(){
 	pcl::PointCloud<pcl::PointXYZ> cloud;
-	Mat depth_image = cv::imread("Righthh.jpg", CV_LOAD_IMAGE_ANYDEPTH | CV_LOAD_IMAGE_ANYCOLOR);
+	Mat depth_image = cv::imread("Righthh.jpg", IMREAD_ANYDEPTH | IMREAD_ANYCOLOR);
 	depth_image.convertTo(depth_image, CV_32F); // convert the image data to float type 
 
 	if (!depth_image.data)
@@ -42,8 +41,8 @@ void pcd_writer(){
 		for (int u = 0; u < depth_image.cols; u++)
 		{
 			float z = 1.0f / (depth_image.at<float>(v, u)*dc1 + dc2);
-			cloud(u, v).x = z / (u - px_d) * fx_d;
-			cloud(u, v).y = z / (v - py_d) * fy_d;
+			cloud(u, v).x = z * (u - px_d) / fx_d;
+			cloud(u, v).y = z * (v - py_d) / fy_d;
 			cloud(u, v).z = z;
 		}
 	pcl::io::savePCDFileASCII("Righthh2.pcd", cloud);
