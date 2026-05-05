@@ -45,37 +45,34 @@
 */
 
 #include <opencv2/opencv.hpp>
-#include <iostream>
+#include <opencv2/calib3d.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/core/utility.hpp>
+#include <opencv2/ximgproc/disparity_filter.hpp>
+#include <opencv2/features2d.hpp>
 #include <pcl/visualization/cloud_viewer.h>
 #include <pcl/io/io.h>
 #include <pcl/io/pcd_io.h>
+#include <pcl/io/vtk_io.h>
+#include <pcl/io/vtk_lib_io.h>
+#include <pcl/io/ply_io.h>
 #include <pcl/point_types.h>
 #include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/surface/gp3.h>
-#include <pcl/io/vtk_io.h>
-#include <memory>
 #include <pcl/common/common_headers.h>
 #include <pcl/visualization/pcl_visualizer.h>
 #include <pcl/console/parse.h>
-#include <pcl/io/ply_io.h>
-#include <pcl/io/vtk_lib_io.h>
-#include <opencv2/core/core.hpp>
-#include <opencv2/calib3d/calib3d.hpp>
-#include <opencv2/highgui/highgui.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
-#include <vector>
-#include "opencv2/calib3d/calib3d.hpp"
-#include "opencv2/imgproc/imgproc.hpp"
-#include "opencv2/imgcodecs.hpp"
-#include "opencv2/highgui/highgui.hpp"
-#include "opencv2/core/utility.hpp"
-#include "opencv2/ximgproc/disparity_filter.hpp"
-
 #include <atomic>
-#include <thread>
 #include <chrono>
-#include "opencv2/features2d/features2d.hpp"
+#include <iostream>
+#include <memory>
+#include <sstream>
+#include <string>
+#include <thread>
+#include <vector>
 #include "LeapC.h"
 
 
@@ -167,75 +164,6 @@ static void pollThread()
     }
 }
 
-
-void SampleListener::onInit(const Controller& controller)
-{
-	cout << "Initialized" << endl;
-}
-void SampleListener::onConnect(const Controller& controller)
-{
-	cout << "Connected" << endl;
-}
-void SampleListener::onDisconnect(const Controller& controller)
-{
-	cout << "Disconnected" << endl;
-}
-void SampleListener::onImages(const Controller& controller)
-{
-
-	ImageList images = controller.images();
-	stringstream ss1, ss2;
-
-	//string Lname = "Left";
-	//string Rname = "Right";
-
-
-	string type = ".jpg";
-
-	ss1 << (ct + 1) << type;
-	ss2 << (ct + 1) << type;
-
-	string filename1 = ss1.str();
-	string filename2 = ss2.str();
-
-	ss1.str("");
-	ss2.str("");
-
-	Mat leftMat, rightMat;
-	int count = 0;
-	if (images.count() == 2)
-	{
-		leftMat = Mat(images[0].height(), images[0].width(), CV_8UC1, (void *)images[0].data());
-		rightMat = Mat(images[1].height(), images[1].width(), CV_8UC1, (void *)images[1].data());
-
-		//namedWindow("Left&Rigth Stream", WINDOW_AUTOSIZE);
-		Mat big(Size(1280, 240), CV_8UC1);
-
-		waitKey(10);
-		leftMat.copyTo(big(cv::Rect(0, 0, 640, 240)));
-		rightMat.copyTo(big(cv::Rect(640, 0, 640, 240)));
-
-		// Display big mat
-		imshow("Video Streaming", big);
-		//imshow("leftMat", leftMat);
-		//imshow("rightMat", rightMat);
-		waitKey(10);
-		
-		imwrite("streamingData/" + filename1, leftMat);
-		imwrite("streamingData/" + filename2, rightMat);
-
-	}
-	counter++;
-	ct++;
-
-}
-
-
-void SampleListener::onExit(const Controller& controller)
-{
-	cout << "Exit" << endl;
-}
-
 void distortion(String image){
 
 	Mat ImageMat = imread(image, IMREAD_COLOR);
@@ -319,7 +247,7 @@ void distortion(String image){
 	string filename = ss.str();
 	imshow("undistorted", output);
 
-	imwrite("streamingData/distortData\\" + filename, output);
+	imwrite("streamingData/distortData/" + filename, output);
 	ct++;
 	waitKey(100);
 }
