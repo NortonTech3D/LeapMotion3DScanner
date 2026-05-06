@@ -1,14 +1,10 @@
 #include <pcl/visualization/cloud_viewer.h>
-#include <iostream>
 #include <pcl/io/io.h>
 #include <pcl/io/pcd_io.h>
-#include <opencv2/core/core.hpp>
-#include <opencv2/calib3d/calib3d.hpp>
-#include <opencv2/highgui/highgui.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
-#include <stdio.h>
-#include <string.h>
+#include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <iostream>
+#include <cstdlib>
 
 using namespace std;
 using namespace pcl;
@@ -19,7 +15,7 @@ void pcd_writer(){
 	Mat depth_image = cv::imread("Righthh.jpg", IMREAD_ANYDEPTH | IMREAD_ANYCOLOR);
 	depth_image.convertTo(depth_image, CV_32F); // convert the image data to float type 
 
-	if (!depth_image.data)
+	if (depth_image.empty())
 	{
 		std::cerr << "No depth data!!!" << std::endl;
 		exit(EXIT_FAILURE);
