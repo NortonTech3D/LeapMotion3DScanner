@@ -1,2 +1,0 @@
-scanner_math_tests 1 0.00220065
----
