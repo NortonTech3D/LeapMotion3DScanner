@@ -74,8 +74,20 @@ int main() {
     {
         const auto f = scanner::frame_filename("left_", 0, ".jpg");
         const auto g = scanner::frame_filename("right_", 41, ".tiff");
+        const auto h = scanner::frame_filename("frame_", -1, ".bin");
         failures += run_test("filename first", f == "left_1.jpg");
         failures += run_test("filename indexed", g == "right_42.tiff");
+        failures += run_test("filename negative index", h == "frame_0.bin");
+    }
+
+    {
+        const auto p = scanner::depth_to_point(-1.0475570660838274f, 10, 20, 0.66999066565804488f,
+                                               0.70185345602029203f, 181.39592173744651f,
+                                               181.39592173744651f, 317.38099136734206f,
+                                               138.35989671763309f);
+        failures += run_test("depth denominator guard x", nearly_equal(p.x, 0.0f));
+        failures += run_test("depth denominator guard y", nearly_equal(p.y, 0.0f));
+        failures += run_test("depth denominator guard z", nearly_equal(p.z, 0.0f));
     }
 
     if (failures == 0) {

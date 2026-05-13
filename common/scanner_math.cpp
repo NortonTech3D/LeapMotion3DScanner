@@ -1,5 +1,6 @@
 #include "scanner_math.h"
 
+#include <cmath>
 #include <sstream>
 
 namespace scanner {
@@ -27,7 +28,11 @@ Point3f depth_to_point(float depth_value,
                        float fy,
                        float px,
                        float py) {
-    const float z = 1.0f / (depth_value * dc1 + dc2);
+    const float denominator = depth_value * dc1 + dc2;
+    if (std::fabs(denominator) <= 1e-12f) {
+        return {0.0f, 0.0f, 0.0f};
+    }
+    const float z = 1.0f / denominator;
     return {
         z * (static_cast<float>(u) - px) / fx,
         z * (static_cast<float>(v) - py) / fy,
