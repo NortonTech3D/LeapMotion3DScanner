@@ -177,9 +177,9 @@ void distortion(String image){
 	for (unsigned int y = 0; y < cmHeight; ++y)
 		for (unsigned int x = 0; x < cmWidth; ++x)
 		{
-			scanner::CalibrationCoord coord = scanner::calibration_coord(x, y, cmWidth, cmHeight);
-			calibMap[y*cmWidth * 2 + 2 * x] = coord.x;
-			calibMap[y*cmWidth * 2 + 2 * x + 1] = coord.y;
+			scanner::CalibrationCoord calibrationCoord = scanner::calibration_coord(x, y, cmWidth, cmHeight);
+			calibMap[y*cmWidth * 2 + 2 * x] = calibrationCoord.x;
+			calibMap[y*cmWidth * 2 + 2 * x + 1] = calibrationCoord.y;
 		}
 
 
@@ -413,11 +413,11 @@ String pcd_writer(String pcdname){
 		//2-D indexing 
 		for (int u = 0; u < depth_image.cols; u++)
 		{
-			scanner::Point3f p = scanner::depth_to_point(depth_image.at<float>(v, u), u, v,
+			scanner::Point3f point3d = scanner::depth_to_point(depth_image.at<float>(v, u), u, v,
 				dc1, dc2, fx_d, fy_d, px_d, py_d);
-			cloud(u, v).x = p.x;
-			cloud(u, v).y = p.y;
-			cloud(u, v).z = p.z;
+			cloud(u, v).x = point3d.x;
+			cloud(u, v).y = point3d.y;
+			cloud(u, v).z = point3d.z;
 		}
 	String temp = "pclcode.pcd";
 	pcl::io::savePCDFileASCII(temp, cloud);

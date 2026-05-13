@@ -103,9 +103,9 @@ String distortion(String image){
 	for (unsigned int y = 0; y < cmHeight; ++y)
 		for (unsigned int x = 0; x < cmWidth; ++x)
 		{
-			scanner::CalibrationCoord coord = scanner::calibration_coord(x, y, cmWidth, cmHeight);
-			calibMap[y*cmWidth * 2 + 2 * x] = coord.x;
-			calibMap[y*cmWidth * 2 + 2 * x + 1] = coord.y;
+			scanner::CalibrationCoord calibrationCoord = scanner::calibration_coord(x, y, cmWidth, cmHeight);
+			calibMap[y*cmWidth * 2 + 2 * x] = calibrationCoord.x;
+			calibMap[y*cmWidth * 2 + 2 * x + 1] = calibrationCoord.y;
 		}
 
 
