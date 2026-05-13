@@ -1,0 +1,4 @@
+/home/runner/work/LeapMotion3DScanner/LeapMotion3DScanner/build-tests/CMakeFiles/scanner_math_tests.dir
+/home/runner/work/LeapMotion3DScanner/LeapMotion3DScanner/build-tests/CMakeFiles/test.dir
+/home/runner/work/LeapMotion3DScanner/LeapMotion3DScanner/build-tests/CMakeFiles/edit_cache.dir
+/home/runner/work/LeapMotion3DScanner/LeapMotion3DScanner/build-tests/CMakeFiles/rebuild_cache.dir
