@@ -89,69 +89,73 @@ endif()
 set(LEAPSDK_ROOT "" CACHE PATH "Primary override path to Ultraleap LeapSDK root (contains include/ and lib/)")
 set(ULTRALEAP_SDK_ROOT "" CACHE PATH "Secondary alias path to Ultraleap LeapSDK root (used after LEAPSDK_ROOT)")
 
+# Build Leap SDK hint lists only from non-empty roots.
+set(_LEAP_ROOT_INCLUDE_HINTS)
+set(_LEAP_ROOT_LIB_HINTS)
+set(_LEAP_ROOT_LIB_X64_HINTS)
+set(_LEAP_ROOT_LIB_X86_HINTS)
+
+if(LEAPSDK_ROOT)
+    list(APPEND _LEAP_ROOT_INCLUDE_HINTS "${LEAPSDK_ROOT}/include")
+    list(APPEND _LEAP_ROOT_LIB_HINTS "${LEAPSDK_ROOT}/lib")
+    list(APPEND _LEAP_ROOT_LIB_X64_HINTS "${LEAPSDK_ROOT}/lib/x64")
+    list(APPEND _LEAP_ROOT_LIB_X86_HINTS "${LEAPSDK_ROOT}/lib/x86")
+endif()
+if(ULTRALEAP_SDK_ROOT)
+    list(APPEND _LEAP_ROOT_INCLUDE_HINTS "${ULTRALEAP_SDK_ROOT}/include")
+    list(APPEND _LEAP_ROOT_LIB_HINTS "${ULTRALEAP_SDK_ROOT}/lib")
+    list(APPEND _LEAP_ROOT_LIB_X64_HINTS "${ULTRALEAP_SDK_ROOT}/lib/x64")
+    list(APPEND _LEAP_ROOT_LIB_X86_HINTS "${ULTRALEAP_SDK_ROOT}/lib/x86")
+endif()
+if(DEFINED ENV{LEAPSDK_ROOT} AND NOT "$ENV{LEAPSDK_ROOT}" STREQUAL "")
+    list(APPEND _LEAP_ROOT_INCLUDE_HINTS "$ENV{LEAPSDK_ROOT}/include")
+    list(APPEND _LEAP_ROOT_LIB_HINTS "$ENV{LEAPSDK_ROOT}/lib")
+    list(APPEND _LEAP_ROOT_LIB_X64_HINTS "$ENV{LEAPSDK_ROOT}/lib/x64")
+    list(APPEND _LEAP_ROOT_LIB_X86_HINTS "$ENV{LEAPSDK_ROOT}/lib/x86")
+endif()
+if(DEFINED ENV{ULTRALEAP_SDK_ROOT} AND NOT "$ENV{ULTRALEAP_SDK_ROOT}" STREQUAL "")
+    list(APPEND _LEAP_ROOT_INCLUDE_HINTS "$ENV{ULTRALEAP_SDK_ROOT}/include")
+    list(APPEND _LEAP_ROOT_LIB_HINTS "$ENV{ULTRALEAP_SDK_ROOT}/lib")
+    list(APPEND _LEAP_ROOT_LIB_X64_HINTS "$ENV{ULTRALEAP_SDK_ROOT}/lib/x64")
+    list(APPEND _LEAP_ROOT_LIB_X86_HINTS "$ENV{ULTRALEAP_SDK_ROOT}/lib/x86")
+endif()
+
 if(APPLE)
     # Ultraleap installs the macOS SDK here by default
     set(_LEAP_HINT_INCLUDE
-        "${LEAPSDK_ROOT}/include"
-        "${ULTRALEAP_SDK_ROOT}/include"
-        "$ENV{LEAPSDK_ROOT}/include"
-        "$ENV{ULTRALEAP_SDK_ROOT}/include"
+        ${_LEAP_ROOT_INCLUDE_HINTS}
         "/Library/Application Support/Ultraleap/LeapSDK/include"
     )
     set(_LEAP_HINT_LIB
-        "${LEAPSDK_ROOT}/lib"
-        "${ULTRALEAP_SDK_ROOT}/lib"
-        "$ENV{LEAPSDK_ROOT}/lib"
-        "$ENV{ULTRALEAP_SDK_ROOT}/lib"
+        ${_LEAP_ROOT_LIB_HINTS}
         "/Library/Application Support/Ultraleap/LeapSDK/lib"
     )
 elseif(WIN32)
     set(_LEAP_HINT_INCLUDE
-        "${LEAPSDK_ROOT}/include"
-        "${ULTRALEAP_SDK_ROOT}/include"
-        "$ENV{LEAPSDK_ROOT}/include"
-        "$ENV{ULTRALEAP_SDK_ROOT}/include"
+        ${_LEAP_ROOT_INCLUDE_HINTS}
         "C:/Program Files/Ultraleap/LeapSDK/include"
     )
     if(CMAKE_SIZEOF_VOID_P EQUAL 8)
         set(_LEAP_HINT_LIB
+            ${_LEAP_ROOT_LIB_X64_HINTS}
+            ${_LEAP_ROOT_LIB_HINTS}
             "C:/Program Files/Ultraleap/LeapSDK/lib/x64"
-            "${LEAPSDK_ROOT}/lib/x64"
-            "${ULTRALEAP_SDK_ROOT}/lib/x64"
-            "${LEAPSDK_ROOT}/lib"
-            "${ULTRALEAP_SDK_ROOT}/lib"
-            "$ENV{LEAPSDK_ROOT}/lib/x64"
-            "$ENV{ULTRALEAP_SDK_ROOT}/lib/x64"
-            "$ENV{LEAPSDK_ROOT}/lib"
-            "$ENV{ULTRALEAP_SDK_ROOT}/lib"
         )
     else()
         set(_LEAP_HINT_LIB
+            ${_LEAP_ROOT_LIB_X86_HINTS}
+            ${_LEAP_ROOT_LIB_HINTS}
             "C:/Program Files/Ultraleap/LeapSDK/lib/x86"
-            "${LEAPSDK_ROOT}/lib/x86"
-            "${ULTRALEAP_SDK_ROOT}/lib/x86"
-            "${LEAPSDK_ROOT}/lib"
-            "${ULTRALEAP_SDK_ROOT}/lib"
-            "$ENV{LEAPSDK_ROOT}/lib/x86"
-            "$ENV{ULTRALEAP_SDK_ROOT}/lib/x86"
-            "$ENV{LEAPSDK_ROOT}/lib"
-            "$ENV{ULTRALEAP_SDK_ROOT}/lib"
         )
     endif()
 else()
     # Linux
     set(_LEAP_HINT_INCLUDE
-        "${LEAPSDK_ROOT}/include"
-        "${ULTRALEAP_SDK_ROOT}/include"
-        "$ENV{LEAPSDK_ROOT}/include"
-        "$ENV{ULTRALEAP_SDK_ROOT}/include"
+        ${_LEAP_ROOT_INCLUDE_HINTS}
         "/usr/local/include"
     )
     set(_LEAP_HINT_LIB
-        "${LEAPSDK_ROOT}/lib"
-        "${ULTRALEAP_SDK_ROOT}/lib"
-        "$ENV{LEAPSDK_ROOT}/lib"
-        "$ENV{ULTRALEAP_SDK_ROOT}/lib"
+        ${_LEAP_ROOT_LIB_HINTS}
         "/usr/local/lib"
     )
 endif()
