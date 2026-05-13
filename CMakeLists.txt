@@ -16,8 +16,7 @@ if(APPLE)
         set(_IS_APPLE_ARM64 TRUE)
     endif()
     if(CMAKE_OSX_ARCHITECTURES)
-        list(FIND CMAKE_OSX_ARCHITECTURES "arm64" _ARM64_ARCH_INDEX)
-        if(NOT _ARM64_ARCH_INDEX EQUAL -1)
+        if("arm64" IN_LIST CMAKE_OSX_ARCHITECTURES)
             set(_IS_APPLE_ARM64 TRUE)
         endif()
     endif()
@@ -87,8 +86,8 @@ endif()
 # ---------------------------------------------------------------------------
 # Find LeapC SDK
 # ---------------------------------------------------------------------------
-set(LEAPSDK_ROOT "" CACHE PATH "Path to Ultraleap LeapSDK root (contains include/ and lib/)")
-set(ULTRALEAP_SDK_ROOT "" CACHE PATH "Path to Ultraleap LeapSDK root (contains include/ and lib/)")
+set(LEAPSDK_ROOT "" CACHE PATH "Primary path to Ultraleap LeapSDK root (contains include/ and lib/)")
+set(ULTRALEAP_SDK_ROOT "" CACHE PATH "Alias path to Ultraleap LeapSDK root (legacy-compatible alternative to LEAPSDK_ROOT)")
 
 if(APPLE)
     # Ultraleap installs the macOS SDK here by default
