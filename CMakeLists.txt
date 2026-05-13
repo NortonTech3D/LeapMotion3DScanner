@@ -8,9 +8,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Platform / architecture detection
 # ---------------------------------------------------------------------------
 if(APPLE)
-    # Detect Apple Silicon (arm64) vs Intel (x86_64)
-    if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64" OR
-       CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+    # Detect Apple Silicon (arm64) vs Intel (x86_64).
+    # CMAKE_OSX_ARCHITECTURES can be a list (e.g. arm64;x86_64), so use list search.
+    set(_IS_APPLE_ARM64 FALSE)
+    set(_ARM64_PATTERN "^(arm64|aarch64)")
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "${_ARM64_PATTERN}" OR
+       CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "${_ARM64_PATTERN}")
+        set(_IS_APPLE_ARM64 TRUE)
+    endif()
+    if(CMAKE_OSX_ARCHITECTURES)
+        if("arm64" IN_LIST CMAKE_OSX_ARCHITECTURES)
+            set(_IS_APPLE_ARM64 TRUE)
+        endif()
+    endif()
+
+    if(_IS_APPLE_ARM64)
         message(STATUS "Targeting Apple Silicon (arm64)")
         # Homebrew on Apple Silicon installs to /opt/homebrew
         list(PREPEND CMAKE_PREFIX_PATH
@@ -75,48 +87,77 @@ endif()
 # ---------------------------------------------------------------------------
 # Find LeapC SDK
 # ---------------------------------------------------------------------------
+set(LEAPSDK_ROOT "" CACHE PATH "Primary override path to Ultraleap LeapSDK root (contains include/ and lib/)")
+set(ULTRALEAP_SDK_ROOT "" CACHE PATH "Secondary alias path to Ultraleap LeapSDK root (used after LEAPSDK_ROOT)")
+
+# Build Leap SDK hint lists only from non-empty roots.
+set(_LEAP_ROOT_INCLUDE_HINTS)
+set(_LEAP_ROOT_LIB_HINTS)
+set(_LEAP_ROOT_LIB_X64_HINTS)
+set(_LEAP_ROOT_LIB_X86_HINTS)
+
+if(LEAPSDK_ROOT)
+    list(APPEND _LEAP_ROOT_INCLUDE_HINTS "${LEAPSDK_ROOT}/include")
+    list(APPEND _LEAP_ROOT_LIB_HINTS "${LEAPSDK_ROOT}/lib")
+    list(APPEND _LEAP_ROOT_LIB_X64_HINTS "${LEAPSDK_ROOT}/lib/x64")
+    list(APPEND _LEAP_ROOT_LIB_X86_HINTS "${LEAPSDK_ROOT}/lib/x86")
+endif()
+if(ULTRALEAP_SDK_ROOT)
+    list(APPEND _LEAP_ROOT_INCLUDE_HINTS "${ULTRALEAP_SDK_ROOT}/include")
+    list(APPEND _LEAP_ROOT_LIB_HINTS "${ULTRALEAP_SDK_ROOT}/lib")
+    list(APPEND _LEAP_ROOT_LIB_X64_HINTS "${ULTRALEAP_SDK_ROOT}/lib/x64")
+    list(APPEND _LEAP_ROOT_LIB_X86_HINTS "${ULTRALEAP_SDK_ROOT}/lib/x86")
+endif()
+if(DEFINED ENV{LEAPSDK_ROOT} AND NOT "$ENV{LEAPSDK_ROOT}" STREQUAL "")
+    list(APPEND _LEAP_ROOT_INCLUDE_HINTS "$ENV{LEAPSDK_ROOT}/include")
+    list(APPEND _LEAP_ROOT_LIB_HINTS "$ENV{LEAPSDK_ROOT}/lib")
+    list(APPEND _LEAP_ROOT_LIB_X64_HINTS "$ENV{LEAPSDK_ROOT}/lib/x64")
+    list(APPEND _LEAP_ROOT_LIB_X86_HINTS "$ENV{LEAPSDK_ROOT}/lib/x86")
+endif()
+if(DEFINED ENV{ULTRALEAP_SDK_ROOT} AND NOT "$ENV{ULTRALEAP_SDK_ROOT}" STREQUAL "")
+    list(APPEND _LEAP_ROOT_INCLUDE_HINTS "$ENV{ULTRALEAP_SDK_ROOT}/include")
+    list(APPEND _LEAP_ROOT_LIB_HINTS "$ENV{ULTRALEAP_SDK_ROOT}/lib")
+    list(APPEND _LEAP_ROOT_LIB_X64_HINTS "$ENV{ULTRALEAP_SDK_ROOT}/lib/x64")
+    list(APPEND _LEAP_ROOT_LIB_X86_HINTS "$ENV{ULTRALEAP_SDK_ROOT}/lib/x86")
+endif()
+
 if(APPLE)
     # Ultraleap installs the macOS SDK here by default
     set(_LEAP_HINT_INCLUDE
+        ${_LEAP_ROOT_INCLUDE_HINTS}
         "/Library/Application Support/Ultraleap/LeapSDK/include"
-        "$ENV{LEAPSDK_ROOT}/include"
-        "$ENV{ULTRALEAP_SDK_ROOT}/include"
     )
     set(_LEAP_HINT_LIB
+        ${_LEAP_ROOT_LIB_HINTS}
         "/Library/Application Support/Ultraleap/LeapSDK/lib"
-        "$ENV{LEAPSDK_ROOT}/lib"
-        "$ENV{ULTRALEAP_SDK_ROOT}/lib"
     )
 elseif(WIN32)
     set(_LEAP_HINT_INCLUDE
+        ${_LEAP_ROOT_INCLUDE_HINTS}
         "C:/Program Files/Ultraleap/LeapSDK/include"
-        "$ENV{LEAPSDK_ROOT}/include"
-        "$ENV{ULTRALEAP_SDK_ROOT}/include"
     )
     if(CMAKE_SIZEOF_VOID_P EQUAL 8)
         set(_LEAP_HINT_LIB
+            ${_LEAP_ROOT_LIB_X64_HINTS}
+            ${_LEAP_ROOT_LIB_HINTS}
             "C:/Program Files/Ultraleap/LeapSDK/lib/x64"
-            "$ENV{LEAPSDK_ROOT}/lib/x64"
-            "$ENV{ULTRALEAP_SDK_ROOT}/lib/x64"
         )
     else()
         set(_LEAP_HINT_LIB
+            ${_LEAP_ROOT_LIB_X86_HINTS}
+            ${_LEAP_ROOT_LIB_HINTS}
             "C:/Program Files/Ultraleap/LeapSDK/lib/x86"
-            "$ENV{LEAPSDK_ROOT}/lib/x86"
-            "$ENV{ULTRALEAP_SDK_ROOT}/lib/x86"
         )
     endif()
 else()
     # Linux
     set(_LEAP_HINT_INCLUDE
+        ${_LEAP_ROOT_INCLUDE_HINTS}
         "/usr/local/include"
-        "$ENV{LEAPSDK_ROOT}/include"
-        "$ENV{ULTRALEAP_SDK_ROOT}/include"
     )
     set(_LEAP_HINT_LIB
+        ${_LEAP_ROOT_LIB_HINTS}
         "/usr/local/lib"
-        "$ENV{LEAPSDK_ROOT}/lib"
-        "$ENV{ULTRALEAP_SDK_ROOT}/lib"
     )
 endif()
 
