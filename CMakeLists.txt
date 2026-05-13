@@ -86,32 +86,32 @@ endif()
 # ---------------------------------------------------------------------------
 # Find LeapC SDK
 # ---------------------------------------------------------------------------
-set(LEAPSDK_ROOT "" CACHE PATH "Primary path to Ultraleap LeapSDK root (contains include/ and lib/)")
-set(ULTRALEAP_SDK_ROOT "" CACHE PATH "Alias path to Ultraleap LeapSDK root (legacy-compatible alternative to LEAPSDK_ROOT)")
+set(LEAPSDK_ROOT "" CACHE PATH "Primary override path to Ultraleap LeapSDK root (contains include/ and lib/)")
+set(ULTRALEAP_SDK_ROOT "" CACHE PATH "Secondary alias path to Ultraleap LeapSDK root (used after LEAPSDK_ROOT)")
 
 if(APPLE)
     # Ultraleap installs the macOS SDK here by default
     set(_LEAP_HINT_INCLUDE
-        "/Library/Application Support/Ultraleap/LeapSDK/include"
         "${LEAPSDK_ROOT}/include"
         "${ULTRALEAP_SDK_ROOT}/include"
         "$ENV{LEAPSDK_ROOT}/include"
         "$ENV{ULTRALEAP_SDK_ROOT}/include"
+        "/Library/Application Support/Ultraleap/LeapSDK/include"
     )
     set(_LEAP_HINT_LIB
-        "/Library/Application Support/Ultraleap/LeapSDK/lib"
         "${LEAPSDK_ROOT}/lib"
         "${ULTRALEAP_SDK_ROOT}/lib"
         "$ENV{LEAPSDK_ROOT}/lib"
         "$ENV{ULTRALEAP_SDK_ROOT}/lib"
+        "/Library/Application Support/Ultraleap/LeapSDK/lib"
     )
 elseif(WIN32)
     set(_LEAP_HINT_INCLUDE
-        "C:/Program Files/Ultraleap/LeapSDK/include"
         "${LEAPSDK_ROOT}/include"
         "${ULTRALEAP_SDK_ROOT}/include"
         "$ENV{LEAPSDK_ROOT}/include"
         "$ENV{ULTRALEAP_SDK_ROOT}/include"
+        "C:/Program Files/Ultraleap/LeapSDK/include"
     )
     if(CMAKE_SIZEOF_VOID_P EQUAL 8)
         set(_LEAP_HINT_LIB
@@ -141,18 +141,18 @@ elseif(WIN32)
 else()
     # Linux
     set(_LEAP_HINT_INCLUDE
-        "/usr/local/include"
         "${LEAPSDK_ROOT}/include"
         "${ULTRALEAP_SDK_ROOT}/include"
         "$ENV{LEAPSDK_ROOT}/include"
         "$ENV{ULTRALEAP_SDK_ROOT}/include"
+        "/usr/local/include"
     )
     set(_LEAP_HINT_LIB
-        "/usr/local/lib"
         "${LEAPSDK_ROOT}/lib"
         "${ULTRALEAP_SDK_ROOT}/lib"
         "$ENV{LEAPSDK_ROOT}/lib"
         "$ENV{ULTRALEAP_SDK_ROOT}/lib"
+        "/usr/local/lib"
     )
 endif()
 
