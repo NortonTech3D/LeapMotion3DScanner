@@ -94,6 +94,17 @@ cmake -B build -G "Visual Studio 17 2022" -A x64 ^
 cmake --build build --config Release
 ```
 
+## Tests
+
+A lightweight, dependency-free unit test suite is provided for shared scanner
+math logic used by the distortion and depth projection pipeline.
+
+```bash
+cmake -S tests -B build-tests
+cmake --build build-tests --parallel
+ctest --test-dir build-tests --output-on-failure
+```
+
 ---
 
 # Project Structure
@@ -130,4 +141,3 @@ LeapMotion3DScanner/
     ├── fypCode.cpp             ← Full pipeline (LeapC + OpenCV + PCL)
     └── mainGUI.cpp             ← GUI front-end (LeapC + OpenCV)
 ```
-

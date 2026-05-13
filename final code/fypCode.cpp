@@ -75,6 +75,7 @@
 #include <thread>
 #include <vector>
 #include "LeapC.h"
+#include "../common/scanner_math.h"
 
 
 using namespace std;
@@ -110,12 +111,8 @@ static void handleImageEvent(const LEAP_IMAGE_EVENT* image_event)
     Mat leftMat  = Mat(height, width, CV_8UC1, const_cast<uint8_t*>(left_pixels)).clone();
     Mat rightMat = Mat(height, width, CV_8UC1, const_cast<uint8_t*>(right_pixels)).clone();
 
-    stringstream ss1, ss2;
-    string type = ".jpg";
-    ss1 << (ct + 1) << type;
-    ss2 << (ct + 1) << type;
-    string filename1 = ss1.str();
-    string filename2 = ss2.str();
+    const string filename1 = scanner::frame_filename("left_", ct, ".jpg");
+    const string filename2 = scanner::frame_filename("right_", ct, ".jpg");
 
     Mat big(Size(1280, 240), CV_8UC1);
     leftMat.copyTo(big(cv::Rect(0, 0, 640, 240)));
@@ -180,12 +177,9 @@ void distortion(String image){
 	for (unsigned int y = 0; y < cmHeight; ++y)
 		for (unsigned int x = 0; x < cmWidth; ++x)
 		{
-			float xx = (float)x / (float)cmWidth;
-			xx = xx*2.0f;
-			float yy = (float)y / (float)cmHeight;
-
-			calibMap[y*cmWidth * 2 + 2 * x] = xx;
-			calibMap[y*cmWidth * 2 + 2 * x + 1] = yy;
+			scanner::CalibrationCoord calibrationCoord = scanner::calibration_coord(x, y, cmWidth, cmHeight);
+			calibMap[y*cmWidth * 2 + 2 * x] = calibrationCoord.x;
+			calibMap[y*cmWidth * 2 + 2 * x + 1] = calibrationCoord.y;
 		}
 
 
@@ -226,10 +220,7 @@ void distortion(String image){
 			undistPosition.x = (cMapMatX.at<float>(j, i)); // this will round the position, maybe you want interpolation instead
 			undistPosition.y = (cMapMatY.at<float>(j, i));
 
-			if (undistPosition.x >= 0 && undistPosition.x < ImageMat.cols
-				&& undistPosition.y >= 0 && undistPosition.y < ImageMat.rows)
-
-			{
+			if (scanner::is_within_bounds(undistPosition.x, undistPosition.y, ImageMat.cols, ImageMat.rows)) {
 				undistortedImage.at<Vec3b>(j, i) = ImageMat.at<Vec3b>(undistPosition);
 			}
 
@@ -422,10 +413,11 @@ String pcd_writer(String pcdname){
 		//2-D indexing 
 		for (int u = 0; u < depth_image.cols; u++)
 		{
-			float z = 1.0f / (depth_image.at<float>(v, u)*dc1 + dc2);
-			cloud(u, v).x = z * (u - px_d) / fx_d;
-			cloud(u, v).y = z * (v - py_d) / fy_d;
-			cloud(u, v).z = z;
+			scanner::Point3f point3d = scanner::depth_to_point(depth_image.at<float>(v, u), u, v,
+				dc1, dc2, fx_d, fy_d, px_d, py_d);
+			cloud(u, v).x = point3d.x;
+			cloud(u, v).y = point3d.y;
+			cloud(u, v).z = point3d.z;
 		}
 	String temp = "pclcode.pcd";
 	pcl::io::savePCDFileASCII(temp, cloud);

@@ -13,6 +13,7 @@
 #include <thread>
 #include <vector>
 #include "LeapC.h"
+#include "../common/scanner_math.h"
 
 
 using namespace std;
@@ -102,12 +103,9 @@ String distortion(String image){
 	for (unsigned int y = 0; y < cmHeight; ++y)
 		for (unsigned int x = 0; x < cmWidth; ++x)
 		{
-			float xx = (float)x / (float)cmWidth;
-			xx = xx*2.0f;
-			float yy = (float)y / (float)cmHeight;
-
-			calibMap[y*cmWidth * 2 + 2 * x] = xx;
-			calibMap[y*cmWidth * 2 + 2 * x + 1] = yy;
+			scanner::CalibrationCoord calibrationCoord = scanner::calibration_coord(x, y, cmWidth, cmHeight);
+			calibMap[y*cmWidth * 2 + 2 * x] = calibrationCoord.x;
+			calibMap[y*cmWidth * 2 + 2 * x + 1] = calibrationCoord.y;
 		}
 
 
@@ -148,10 +146,7 @@ String distortion(String image){
 			undistPosition.x = (cMapMatX.at<float>(j, i)); // this will round the position, maybe you want interpolation instead
 			undistPosition.y = (cMapMatY.at<float>(j, i));
 
-			if (undistPosition.x >= 0 && undistPosition.x < ImageMat.cols
-				&& undistPosition.y >= 0 && undistPosition.y < ImageMat.rows)
-
-			{
+			if (scanner::is_within_bounds(undistPosition.x, undistPosition.y, ImageMat.cols, ImageMat.rows)) {
 				undistortedImage.at<Vec3b>(j, i) = ImageMat.at<Vec3b>(undistPosition);
 			}
 
