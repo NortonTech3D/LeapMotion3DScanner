@@ -5,6 +5,10 @@
 
 namespace scanner {
 
+namespace {
+constexpr float kDenominatorEpsilon = 1e-12f;
+}
+
 CalibrationCoord calibration_coord(unsigned int x,
                                    unsigned int y,
                                    unsigned int map_width,
@@ -29,7 +33,7 @@ Point3f depth_to_point(float depth_value,
                        float px,
                        float py) {
     const float denominator = depth_value * dc1 + dc2;
-    if (std::fabs(denominator) <= 1e-12f) {
+    if (std::fabs(denominator) <= kDenominatorEpsilon) {
         return {0.0f, 0.0f, 0.0f};
     }
     const float z = 1.0f / denominator;

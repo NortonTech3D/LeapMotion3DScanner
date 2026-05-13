@@ -75,9 +75,11 @@ int main() {
         const auto f = scanner::frame_filename("left_", 0, ".jpg");
         const auto g = scanner::frame_filename("right_", 41, ".tiff");
         const auto h = scanner::frame_filename("frame_", -1, ".bin");
+        const auto i = scanner::frame_filename("frame_", 1000000, ".dat");
         failures += run_test("filename first", f == "left_1.jpg");
         failures += run_test("filename indexed", g == "right_42.tiff");
         failures += run_test("filename negative index", h == "frame_0.bin");
+        failures += run_test("filename large index", i == "frame_1000001.dat");
     }
 
     {
