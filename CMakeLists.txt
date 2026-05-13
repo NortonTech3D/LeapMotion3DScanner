@@ -11,8 +11,9 @@ if(APPLE)
     # Detect Apple Silicon (arm64) vs Intel (x86_64).
     # CMAKE_OSX_ARCHITECTURES can be a list (e.g. arm64;x86_64), so use list search.
     set(_IS_APPLE_ARM64 FALSE)
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)" OR
-       CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)")
+    set(_ARM64_PATTERN "^(arm64|aarch64)")
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "${_ARM64_PATTERN}" OR
+       CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "${_ARM64_PATTERN}")
         set(_IS_APPLE_ARM64 TRUE)
     endif()
     if(CMAKE_OSX_ARCHITECTURES)
