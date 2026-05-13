@@ -1,89 +1,95 @@
-#include <opencv2\opencv.hpp>
-#include <iostream>
-#include <boost/thread/thread.hpp>
-#include <opencv2/core/core.hpp>
-#include <opencv2/calib3d/calib3d.hpp>
-#include <opencv2/highgui/highgui.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
-#include <opencv2\ximgproc\disparity_filter.hpp>
-#include <vector>
+#include <opencv2/opencv.hpp>
+#include <opencv2/calib3d.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/ximgproc/disparity_filter.hpp>
+#include <opencv2/features2d.hpp>
+#include <atomic>
 #include <cstdlib>
+#include <iostream>
+#include <memory>
 #include <sstream>
 #include <string>
-#include "opencv2/features2d/features2d.hpp"
-#include "Leap.h"
+#include <thread>
+#include <vector>
+#include "LeapC.h"
 
 
-using namespace Leap;
 using namespace std;
 using namespace cv;
 
 
 static int ct = 0;
 
-class SampleListener : public Listener
+// Pre-allocated image buffer: 640x240 per camera, 2 cameras.
+static const uint32_t CAMERA_WIDTH  = 640;
+static const uint32_t CAMERA_HEIGHT = 240;
+static const uint64_t IMAGE_BUFFER_SIZE = CAMERA_WIDTH * CAMERA_HEIGHT * 2;
+static std::vector<uint8_t> g_image_buffer(IMAGE_BUFFER_SIZE);
+
+static LEAP_CONNECTION g_connection;
+static std::atomic<bool> g_running(false);
+
+static void handleImageEvent(const LEAP_IMAGE_EVENT* image_event)
 {
-public:
-	virtual void onInit(const Controller&);
-	virtual void onConnect(const Controller&);
-	virtual void onDisconnect(const Controller&);
-	virtual void onExit(const Controller&);
-	virtual void onImages(const Controller&);
+    uint32_t width  = image_event->image[0].properties.width;
+    uint32_t height = image_event->image[0].properties.height;
 
-};
+    const uint8_t* left_pixels  = g_image_buffer.data() + image_event->image[0].offset;
+    const uint8_t* right_pixels = g_image_buffer.data() + image_event->image[1].offset;
 
-void SampleListener::onInit(const Controller& controller)
-{
-	cout << "Initialized" << endl;
-}
-void SampleListener::onConnect(const Controller& controller)
-{
-	cout << "Connected" << endl;
-}
-void SampleListener::onDisconnect(const Controller& controller)
-{
-	cout << "Disconnected" << endl;
-}
-void SampleListener::onImages(const Controller& controller)
-{
+    // Clone before any I/O since the buffer is reused each frame
+    Mat leftMat  = Mat(height, width, CV_8UC1, const_cast<uint8_t*>(left_pixels)).clone();
+    Mat rightMat = Mat(height, width, CV_8UC1, const_cast<uint8_t*>(right_pixels)).clone();
 
-	ImageList images = controller.images();
+    Mat big(Size(1280, 240), CV_8UC1);
+    leftMat.copyTo(big(cv::Rect(0, 0, 640, 240)));
+    rightMat.copyTo(big(cv::Rect(640, 0, 640, 240)));
 
+    imshow("Video Streaming", big);
+    waitKey(10);
 
-	Mat leftMat, rightMat;
-
-
-	leftMat = Mat(images[0].height(), images[0].width(), CV_8UC1, (void *)images[0].data());
-	rightMat = Mat(images[1].height(), images[1].width(), CV_8UC1, (void *)images[1].data());
-
-	//namedWindow("Left&Rigth Stream", WINDOW_AUTOSIZE);
-	Mat big(Size(1280, 240), CV_8UC1);
-
-	waitKey(10);
-	leftMat.copyTo(big(cv::Rect(0, 0, 640, 240)));
-	rightMat.copyTo(big(cv::Rect(640, 0, 640, 240)));
-
-	// Display big mat
-	imshow("Video Streaming", big);
-	//imshow("leftMat", leftMat);
-	//imshow("rightMat", rightMat);
-	waitKey(10);
-
-	imwrite("Left_1.tiff", leftMat);
-	imwrite("Right_1.tiff", rightMat);
-
-
+    imwrite("Left_1.tiff", leftMat);
+    imwrite("Right_1.tiff", rightMat);
 }
 
-
-void SampleListener::onExit(const Controller& controller)
+static void pollThread()
 {
-	cout << "Exit" << endl;
+    while (g_running) {
+        LEAP_CONNECTION_MESSAGE msg;
+        eLeapRS result = LeapPollConnection(g_connection, 100, &msg);
+        if (result != eLeapRS_Success)
+            continue;
+
+        switch (msg.type) {
+        case eLeapEventType_Connection:
+            cout << "Connected" << endl;
+            break;
+        case eLeapEventType_ConnectionLost:
+            cout << "Disconnected" << endl;
+            g_running = false;
+            break;
+        case eLeapEventType_Device:
+            cout << "Device found" << endl;
+            break;
+        case eLeapEventType_Tracking: {
+            uint64_t frame_id = msg.tracking_event->info.frame_id;
+            LeapRequestImages(g_connection, frame_id, eLeapImageType_Default,
+                              g_image_buffer.data(), IMAGE_BUFFER_SIZE);
+            break;
+        }
+        case eLeapEventType_Image:
+            handleImageEvent(msg.image_event);
+            break;
+        default:
+            break;
+        }
+    }
 }
 
 String distortion(String image){
 
-	Mat ImageMat = imread(image, CV_32FC1);
+	Mat ImageMat = imread(image, IMREAD_COLOR);
 
 	imshow("initial", ImageMat);
 	waitKey(20);
@@ -120,8 +126,8 @@ String distortion(String image){
 
 	// interpolate those values for each of your original images pixel:
 	// here I use linear interpolation, you could use cubic or other interpolation too.
-	resize(cMapMatX, cMapMatX, ImageMat.size(), 0, 0, CV_INTER_LINEAR);
-	resize(cMapMatY, cMapMatY, ImageMat.size(), 0, 0, CV_INTER_LINEAR);
+	resize(cMapMatX, cMapMatX, ImageMat.size(), 0, 0, INTER_LINEAR);
+	resize(cMapMatY, cMapMatY, ImageMat.size(), 0, 0, INTER_LINEAR);
 
 
 	// now the calibration map has the size of your original image, but its values are still between 0 and 1 (for legal positions)
@@ -174,8 +180,8 @@ String disparity(String left, String right){
 	Mat img1, img2, g1, g2;
 	Mat disp, disp8;
 
-	img1 = imread(left, CV_32FC1);
-	img2 = imread(right, CV_32FC1);
+	img1 = imread(left, IMREAD_COLOR);
+	img2 = imread(right, IMREAD_COLOR);
 
 	StereoBM sbm;
 	sbm.state->SADWindowSize = 11;
@@ -205,7 +211,7 @@ String disparity(String left, String right){
 	sgbm(img1, img2, disp);
 	
 	waitKey(500);
-	normalize(disp, disp8, 0, 255, CV_MINMAX, CV_32FC1);
+	normalize(disp, disp8, 0, 255, NORM_MINMAX, CV_32FC1);
 	waitKey(100);
 	imshow("left", img1);
 	imshow("right", img2);
@@ -222,7 +228,7 @@ String disparity(String left, String right){
 /*
 String pcd_writer(String pcdname){
 	pcl::PointCloud<pcl::PointXYZ> cloud;
-	Mat depth_image = cv::imread(pcdname, CV_LOAD_IMAGE_ANYDEPTH | CV_LOAD_IMAGE_ANYCOLOR);
+	Mat depth_image = cv::imread(pcdname, IMREAD_ANYDEPTH | IMREAD_ANYCOLOR);
 	depth_image.convertTo(depth_image, CV_32F); // convert the image data to float type 
 
 	if (!depth_image.data)
@@ -332,7 +338,7 @@ void Triangulation_viwer(String pcdname){
 	// Finish
 
 
-	boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("3D Viewer"));
+	std::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("3D Viewer"));
 
 	pcl::PolygonMesh::Ptr mesh(new pcl::PolygonMesh);
 	pcl::io::loadPolygonFileVTK("triangulation_hani_Undistorted_Depth.vtk", *mesh);
@@ -343,17 +349,32 @@ void Triangulation_viwer(String pcdname){
 }
 */
 void Main_func_call(){
-	SampleListener listener;
-	Controller leap;
+	// Open LeapC connection and start the polling thread
+	eLeapRS result = LeapCreateConnection(nullptr, &g_connection);
+	if (result != eLeapRS_Success) {
+		cerr << "LeapCreateConnection failed: " << result << endl;
+		return;
+	}
+	result = LeapOpenConnection(g_connection);
+	if (result != eLeapRS_Success) {
+		cerr << "LeapOpenConnection failed: " << result << endl;
+		LeapDestroyConnection(g_connection);
+		return;
+	}
+	LeapSetPolicyFlags(g_connection, eLeapPolicyFlag_Images, 0);
+	g_running = true;
+	thread poll(pollThread);
 
-	leap.setPolicy(Leap::Controller::POLICY_IMAGES);
-	leap.addListener(listener);
 	cin.get();
-	leap.removeListener(listener);
 
-	// sample image of left and right camera
-	String left = "Right_1.tiff";
-	String right = "Left_1.tiff";
+	g_running = false;
+	poll.join();
+	LeapCloseConnection(g_connection);
+	LeapDestroyConnection(g_connection);
+
+	// sample images of left and right camera
+	String left = "Left_1.tiff";
+	String right = "Right_1.tiff";
 
 	// left camera image pass to distortion function
 	//String image1 = distortion(left);

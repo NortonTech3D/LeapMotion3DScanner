@@ -1,10 +1,6 @@
-#include <opencv2/core/core.hpp>
-#include <opencv2/calib3d/calib3d.hpp>
-#include <opencv2/highgui/highgui.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
-#include <opencv2/contrib/contrib.hpp>
-#include <stdio.h>
-#include <string.h>
+#include <opencv2/core.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <iostream>
 
 using namespace cv;
@@ -14,7 +10,7 @@ using namespace std;
 int main(){
 
 	Mat output;
-	Mat input = imread("disparity_hand_Undistorted.jpg",CV_64F);
+	Mat input = imread("disparity_hand_Undistorted.jpg", IMREAD_ANYDEPTH | IMREAD_ANYCOLOR);
 	output=input(Rect(10,20,320,200));
 
 	waitKey(100);

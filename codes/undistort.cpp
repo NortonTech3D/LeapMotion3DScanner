@@ -6,12 +6,9 @@
 #include "opencv2/calib3d/calib3d.hpp"
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
-#include "opencv2/contrib/contrib.hpp"
-#include "Leap.h"
 
 using namespace cv;
 using namespace std;
-using namespace Leap;
 
 	
 	
@@ -22,7 +19,7 @@ int main()
 	Mat M1 = Mat(3, 3, CV_64FC1);
 	Mat M2 = Mat(3, 3, CV_64FC1);
 	Mat D1, D2;
-	leftMat = imread("LeftHani.jpg", CV_8UC1);
+	leftMat = imread("LeftHani.jpg", IMREAD_GRAYSCALE);
 
 	imshow("left", leftMat);
 

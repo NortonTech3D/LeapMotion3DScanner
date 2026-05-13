@@ -6,7 +6,7 @@
 #include "opencv2/calib3d/calib3d.hpp"
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
-#include "opencv2/contrib/contrib.hpp"
+
 
 using namespace cv;
 using namespace std;
@@ -37,14 +37,14 @@ int main()
 
 	while (successes<numBoards)
 	{
-		cvtColor(image, gray_image, CV_BGR2GRAY);
+		cvtColor(image, gray_image, COLOR_BGR2GRAY);
 
 		bool found = findChessboardCorners(image, board_sz, corners, CALIB_CB_ADAPTIVE_THRESH + CALIB_CB_NORMALIZE_IMAGE
 			+ CALIB_CB_FAST_CHECK);
 
 		if (found)
 		{
-			cornerSubPix(gray_image, corners, Size(11, 11), Size(-1, -1), TermCriteria(CV_TERMCRIT_EPS | CV_TERMCRIT_ITER, 30, 0.1));
+			cornerSubPix(gray_image, corners, Size(11, 11), Size(-1, -1), TermCriteria(TermCriteria::EPS | TermCriteria::MAX_ITER, 30, 0.1));
 			drawChessboardCorners(gray_image, board_sz, corners, found);
 		}
 		*/

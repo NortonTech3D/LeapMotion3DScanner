@@ -2,7 +2,7 @@
 #include "opencv2/calib3d/calib3d.hpp"
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
-#include "opencv2/contrib/contrib.hpp"
+
 #include <stdio.h>
 
 using namespace cv;
@@ -40,21 +40,21 @@ int main(int argc, char* argv[])
 		cap2 >> img2;
 		//resize(img1, img1, Size(320, 280));
 		//resize(img2, img2, Size(320, 280));
-		cvtColor(img1, gray1, CV_BGR2GRAY);
-		cvtColor(img2, gray2, CV_BGR2GRAY);
+		cvtColor(img1, gray1, COLOR_BGR2GRAY);
+		cvtColor(img2, gray2, COLOR_BGR2GRAY);
 
-		found1 = findChessboardCorners(img1, board_sz, corners1, CV_CALIB_CB_ADAPTIVE_THRESH | CV_CALIB_CB_FILTER_QUADS);
-		found2 = findChessboardCorners(img2, board_sz, corners2, CV_CALIB_CB_ADAPTIVE_THRESH | CV_CALIB_CB_FILTER_QUADS);
+		found1 = findChessboardCorners(img1, board_sz, corners1, CALIB_CB_ADAPTIVE_THRESH | CALIB_CB_FILTER_QUADS);
+		found2 = findChessboardCorners(img2, board_sz, corners2, CALIB_CB_ADAPTIVE_THRESH | CALIB_CB_FILTER_QUADS);
 
 		if (found1)
 		{
-			cornerSubPix(gray1, corners1, Size(11, 11), Size(-1, -1), TermCriteria(CV_TERMCRIT_EPS | CV_TERMCRIT_ITER, 30, 0.1));
+			cornerSubPix(gray1, corners1, Size(11, 11), Size(-1, -1), TermCriteria(TermCriteria::EPS | TermCriteria::MAX_ITER, 30, 0.1));
 			drawChessboardCorners(gray1, board_sz, corners1, found1);
 		}
 
 		if (found2)
 		{
-			cornerSubPix(gray2, corners2, Size(11, 11), Size(-1, -1), TermCriteria(CV_TERMCRIT_EPS | CV_TERMCRIT_ITER, 30, 0.1));
+			cornerSubPix(gray2, corners2, Size(11, 11), Size(-1, -1), TermCriteria(TermCriteria::EPS | TermCriteria::MAX_ITER, 30, 0.1));
 			drawChessboardCorners(gray2, board_sz, corners2, found2);
 		}
 
@@ -94,8 +94,8 @@ int main(int argc, char* argv[])
 
 	stereoCalibrate(object_points, imagePoints1, imagePoints2,
 		CM1, D1, CM2, D2, img1.size(), R, T, E, F,
-		cvTermCriteria(CV_TERMCRIT_ITER + CV_TERMCRIT_EPS, 100, 1e-5),
-		CV_CALIB_SAME_FOCAL_LENGTH | CV_CALIB_ZERO_TANGENT_DIST);
+		TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 100, 1e-5),
+		CALIB_SAME_FOCAL_LENGTH | CALIB_ZERO_TANGENT_DIST);
 
 	FileStorage fs1("mystereocalib.yml", FileStorage::WRITE);
 	fs1 << "CM1" << CM1;

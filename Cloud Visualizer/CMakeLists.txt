@@ -1,12 +1,15 @@
-cmake_minimum_required(VERSION 2.8 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.16)
 
-project(cloud_viewer)
+project(cloud_viewer CXX)
 
-find_package(PCL 1.7 REQUIRED)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+find_package(PCL 1.7 REQUIRED COMPONENTS common io visualization)
 
 include_directories(${PCL_INCLUDE_DIRS})
 link_directories(${PCL_LIBRARY_DIRS})
 add_definitions(${PCL_DEFINITIONS})
 
-add_executable (cloud_viewer cloud_viewer.cpp)
-target_link_libraries (cloud_viewer ${PCL_LIBRARIES})
+add_executable(cloud_viewer cloud_viewer.cpp)
+target_link_libraries(cloud_viewer PRIVATE ${PCL_LIBRARIES})
