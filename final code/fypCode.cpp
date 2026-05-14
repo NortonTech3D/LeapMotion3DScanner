@@ -38,6 +38,8 @@ static const uint32_t CAMERA_HEIGHT = 240;
 static const uint64_t IMAGE_BUFFER_SIZE = CAMERA_WIDTH * CAMERA_HEIGHT * 2;
 static const size_t MAX_CAPTURED_FRAMES = 20;
 static const uint64_t FRAME_SAMPLE_STRIDE = 2;
+static const char* QUALITY_MODE_PREVIEW = "preview";
+static const char* QUALITY_MODE_HIGH = "high";
 
 enum class ReconstructionMode {
     FastPreview,
@@ -104,7 +106,7 @@ ReconstructionMode get_reconstruction_mode() {
 
     string value = quality_env;
     transform(value.begin(), value.end(), value.begin(),
-              [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+              [](unsigned char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
 
     if (value == "preview" || value == "fast") {
         return ReconstructionMode::FastPreview;
@@ -279,6 +281,9 @@ float compute_adaptive_confidence_threshold(const Mat& confidence,
 
     if (confidence_values.empty()) {
         return 64.0f;
+    }
+    if (confidence_values.size() == 1) {
+        return std::clamp(confidence_values.front(), 32.0f, 224.0f);
     }
 
     const size_t percentile_index = static_cast<size_t>(std::clamp(percentile, 0.0f, 1.0f) * static_cast<float>(confidence_values.size() - 1));
@@ -544,7 +549,7 @@ void process_pipeline(const vector<CapturedFrame>& frames) {
     write_disparity_outputs(last_disparity);
 
     FileStorage summary("streamingData/reconstruction_summary.yml", FileStorage::WRITE);
-    summary << "quality_mode" << (mode == ReconstructionMode::HighQuality ? "high" : "preview");
+    summary << "quality_mode" << (mode == ReconstructionMode::HighQuality ? QUALITY_MODE_HIGH : QUALITY_MODE_PREVIEW);
     summary << "captured_frames" << static_cast<int>(frames.size());
     summary << "accepted_frames" << accepted_frames;
     summary << "skipped_frames" << skipped_frames;

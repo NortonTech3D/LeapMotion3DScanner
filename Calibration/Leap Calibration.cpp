@@ -26,6 +26,11 @@ static const Size BOARD_SZ(BOARD_W, BOARD_H);
 static const int BOARD_N = BOARD_W * BOARD_H;
 static const int MIN_BOARDS_AFTER_REJECTION = 12;
 static const double MAX_ACCEPTABLE_STEREO_RMS = 1.5;
+static const double MAX_ACCEPTABLE_MEAN_REPROJECTION_RMSE = 1.25;
+static const double MIN_CENTROID_SPREAD_X = 0.20;
+static const double MIN_CENTROID_SPREAD_Y = 0.15;
+static const double MIN_OUTLIER_REJECTION_THRESHOLD = 1.0;
+static const double MEDIAN_OUTLIER_REJECTION_SCALE = 1.6;
 
 struct CalibrationQuality {
     double stereoRms = std::numeric_limits<double>::infinity();
@@ -51,8 +56,8 @@ static vector<Point3f> buildObjTemplate() {
     vector<Point3f> obj;
     obj.reserve(BOARD_N);
     for (int j = 0; j < BOARD_N; j++) {
-        obj.push_back(Point3f(static_cast<float>(j / BOARD_W) * BOARD_SQUARE_SIZE_MM,
-                              static_cast<float>(j % BOARD_W) * BOARD_SQUARE_SIZE_MM,
+        obj.push_back(Point3f(static_cast<float>(j % BOARD_W) * BOARD_SQUARE_SIZE_MM,
+                              static_cast<float>(j / BOARD_W) * BOARD_SQUARE_SIZE_MM,
                               0.0f));
     }
     return obj;
@@ -214,8 +219,9 @@ static bool quality_gate_and_save(const vector<vector<Point3f>>& obj_points,
     measure_pose_coverage(img_points_1, image_size, quality.centroidSpreadX, quality.centroidSpreadY);
 
     const bool rms_ok = std::isfinite(quality.stereoRms) && quality.stereoRms <= MAX_ACCEPTABLE_STEREO_RMS;
-    const bool reproj_ok = quality.meanReprojection <= 1.25;
-    const bool coverage_ok = quality.centroidSpreadX >= 0.20 && quality.centroidSpreadY >= 0.15;
+    const bool reproj_ok = quality.meanReprojection <= MAX_ACCEPTABLE_MEAN_REPROJECTION_RMSE;
+    const bool coverage_ok = quality.centroidSpreadX >= MIN_CENTROID_SPREAD_X &&
+                             quality.centroidSpreadY >= MIN_CENTROID_SPREAD_Y;
 
     quality.accepted = rms_ok && reproj_ok && coverage_ok;
 
@@ -312,7 +318,8 @@ static void runCalibration(Size imageSize) {
     if (!sorted_errors.empty()) {
         sort(sorted_errors.begin(), sorted_errors.end());
         const double median_err = sorted_errors[sorted_errors.size() / 2];
-        rejection_threshold = std::max(1.0, median_err * 1.6);
+        rejection_threshold = std::max(MIN_OUTLIER_REJECTION_THRESHOLD,
+                                       median_err * MEDIAN_OUTLIER_REJECTION_SCALE);
     }
 
     for (size_t i = 0; i < object_points.size(); ++i) {
