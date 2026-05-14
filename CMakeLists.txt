@@ -74,7 +74,7 @@ endif()
 # ---------------------------------------------------------------------------
 # Find PCL
 # ---------------------------------------------------------------------------
-find_package(PCL QUIET COMPONENTS common io visualization kdtree features surface)
+find_package(PCL QUIET COMPONENTS common io visualization kdtree features surface registration)
 if(PCL_FOUND)
     message(STATUS "PCL ${PCL_VERSION} found — point-cloud targets will be built")
     include_directories(${PCL_INCLUDE_DIRS})
