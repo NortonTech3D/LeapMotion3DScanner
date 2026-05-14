@@ -4,6 +4,8 @@ project(LeapMotion3DScanner CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+include(CheckIPOSupported)
+
 # ---------------------------------------------------------------------------
 # Platform / architecture detection
 # ---------------------------------------------------------------------------
@@ -24,9 +26,14 @@ if(APPLE)
 
     if(_IS_APPLE_ARM64)
         message(STATUS "Targeting Apple Silicon (arm64)")
+        if(NOT CMAKE_OSX_ARCHITECTURES)
+            # On Apple Silicon, prefer native arm64 builds by default.
+            set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "macOS target architectures" FORCE)
+        endif()
         # Homebrew on Apple Silicon installs to /opt/homebrew
         list(PREPEND CMAKE_PREFIX_PATH
             "/opt/homebrew"
+            "/opt/homebrew/opt/opencv@4"
             "/opt/homebrew/opt/opencv"
             "/opt/homebrew/opt/pcl"
             "/opt/homebrew/opt/vtk"
@@ -51,6 +58,27 @@ elseif(WIN32)
 else()
     # Linux
     option(WITH_CUDA "Enable CUDA support" OFF)
+endif()
+
+# ---------------------------------------------------------------------------
+# Performance defaults
+# ---------------------------------------------------------------------------
+option(LEAP_ENABLE_NATIVE_OPTIMIZATIONS "Enable native CPU optimizations for release builds" ON)
+
+check_ipo_supported(RESULT _LEAP_IPO_SUPPORTED OUTPUT _LEAP_IPO_ERROR)
+if(_LEAP_IPO_SUPPORTED)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+else()
+    message(STATUS "IPO/LTO not supported by this toolchain: ${_LEAP_IPO_ERROR}")
+endif()
+
+if(LEAP_ENABLE_NATIVE_OPTIMIZATIONS)
+    if(APPLE AND _IS_APPLE_ARM64)
+        # Tuned for Apple Silicon (including M1 Max); can be overridden by users.
+        add_compile_options("$<$<AND:$<CONFIG:Release>,$<COMPILE_LANGUAGE:CXX>>:-mcpu=apple-m1>")
+    elseif(NOT APPLE)
+        add_compile_options("$<$<AND:$<CONFIG:Release>,$<COMPILE_LANGUAGE:CXX>>:-march=native>")
+    endif()
 endif()
 
 # ---------------------------------------------------------------------------

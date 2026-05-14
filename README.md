@@ -28,9 +28,9 @@ After getting this mesh model we can use it in games and other simulation enviro
 
 # Building
 
-## macOS – Apple Silicon (M1 / M2 / M3)
+## macOS – Apple Silicon (M1 / M1 Pro / M1 Max / M2 / M3 / M4)
 
-> Homebrew on Apple Silicon installs to `/opt/homebrew`. The CMake build system detects this automatically.
+> Homebrew on Apple Silicon installs to `/opt/homebrew`. The CMake build system detects this automatically and now defaults to native `arm64` builds for best performance on Apple Silicon (including M1 Max).
 
 ```bash
 # 1. Install build dependencies via Homebrew
@@ -54,6 +54,12 @@ cmake -B build \
       -DCMAKE_BUILD_TYPE=Release \
       -DLEAPSDK_ROOT=/path/to/LeapSDK
 cmake --build build --parallel
+```
+
+To disable architecture-specific tuning, pass:
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DLEAP_ENABLE_NATIVE_OPTIMIZATIONS=OFF
 ```
 
 ## macOS – Intel
