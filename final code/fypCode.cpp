@@ -1,140 +1,381 @@
-/******************************************************************************\
-* Copyright (C) 2012-2014 Leap Motion, Inc. All rights reserved.               *
-* Leap Motion proprietary and confidential. Not for distribution.              *
-* Use subject to the terms of the Leap Motion SDK Agreement available at       *
-* https://developer.leapmotion.com/sdk_agreement, or another agreement         *
-* between Leap Motion and you, your company or other organization.             *
-\******************************************************************************/
-
-/*
-* Software License Agreement (BSD License)
-*
-*  Point Cloud Library (PCL) - www.pointclouds.org
-*  Copyright (c) 2010, Willow Garage, Inc.
-*  Copyright (c) 2012-, Open Perception, Inc.
-*
-*  All rights reserved.
-*
-*  Redistribution and use in source and binary forms, with or without
-*  modification, are permitted provided that the following conditions
-*  are met:
-*
-*   * Redistributions of source code must retain the above copyright
-*     notice, this list of conditions and the following disclaimer.
-*   * Redistributions in binary form must reproduce the above
-*     copyright notice, this list of conditions and the following
-*     disclaimer in the documentation and/or other materials provided
-*     with the distribution.
-*   * Neither the name of the copyright holder(s) nor the names of its
-*     contributors may be used to endorse or promote products derived
-*     from this software without specific prior written permission.
-*
-*  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-*  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-*  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
-*  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-*  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
-*  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
-*  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-*  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-*  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
-*  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
-*  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-*  POSSIBILITY OF SUCH DAMAGE.
-*
-*/
-
 #include <opencv2/opencv.hpp>
 #include <opencv2/calib3d.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgcodecs.hpp>
-#include <opencv2/core/utility.hpp>
 #include <opencv2/ximgproc/disparity_filter.hpp>
-#include <opencv2/features2d.hpp>
-#include <pcl/visualization/cloud_viewer.h>
-#include <pcl/io/io.h>
 #include <pcl/io/pcd_io.h>
-#include <pcl/io/vtk_io.h>
-#include <pcl/io/vtk_lib_io.h>
-#include <pcl/io/ply_io.h>
 #include <pcl/point_types.h>
-#include <pcl/kdtree/kdtree_flann.h>
-#include <pcl/features/normal_3d.h>
-#include <pcl/surface/gp3.h>
-#include <pcl/common/common_headers.h>
-#include <pcl/visualization/pcl_visualizer.h>
-#include <pcl/console/parse.h>
+#include <pcl/filters/radius_outlier_removal.h>
+#include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl/filters/voxel_grid.h>
 #include <atomic>
-#include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <iostream>
-#include <memory>
-#include <sstream>
-#include <string>
+#include <limits>
+#include <mutex>
 #include <thread>
 #include <vector>
+
 #include "LeapC.h"
-#include "../common/scanner_math.h"
 
-
-using namespace std;
-using namespace pcl;
 using namespace cv;
 using namespace cv::ximgproc;
+using namespace std;
 
-static int ct = 0;
-static int counter = 0;
+namespace {
 
-// Pre-allocated image buffer: 640x240 per camera, 2 cameras.
-static const uint32_t CAMERA_WIDTH  = 640;
+static const uint32_t CAMERA_WIDTH = 640;
 static const uint32_t CAMERA_HEIGHT = 240;
 static const uint64_t IMAGE_BUFFER_SIZE = CAMERA_WIDTH * CAMERA_HEIGHT * 2;
-static std::vector<uint8_t> g_image_buffer(IMAGE_BUFFER_SIZE);
 
-static LEAP_CONNECTION g_connection;
-static std::atomic<bool> g_running(false);
+struct StereoCalibration {
+    Mat CM1, CM2, D1, D2, R, T;
+    Mat R1, R2, P1, P2, Q;
+    Mat map1x, map1y, map2x, map2y;
+    bool ready = false;
+};
 
-// Forward declarations for processing functions defined later in this file
-void distortion(String image);
-void disparity(String leftImage, String rightImage);
+struct DisparityResult {
+    Mat disparity16;
+    Mat disparity32;
+    Mat confidence;
+    Mat disparityVis;
+};
 
-static void handleImageEvent(const LEAP_IMAGE_EVENT* image_event)
-{
-    uint32_t width  = image_event->image[0].properties.width;
-    uint32_t height = image_event->image[0].properties.height;
+LEAP_CONNECTION g_connection{};
+vector<uint8_t> g_image_buffer(IMAGE_BUFFER_SIZE);
+atomic<bool> g_running(false);
+mutex g_frame_mutex;
+Mat g_latest_left_raw;
+Mat g_latest_right_raw;
+LEAP_DISTORTION_MATRIX g_latest_left_distortion{};
+LEAP_DISTORTION_MATRIX g_latest_right_distortion{};
+bool g_has_frame = false;
+bool g_saved_preview = false;
 
-    const uint8_t* left_pixels  = g_image_buffer.data() + image_event->image[0].offset;
-    const uint8_t* right_pixels = g_image_buffer.data() + image_event->image[1].offset;
-
-    // Clone before any I/O since the buffer is reused each frame
-    Mat leftMat  = Mat(height, width, CV_8UC1, const_cast<uint8_t*>(left_pixels)).clone();
-    Mat rightMat = Mat(height, width, CV_8UC1, const_cast<uint8_t*>(right_pixels)).clone();
-
-    const string filename1 = scanner::frame_filename("left_", ct, ".jpg");
-    const string filename2 = scanner::frame_filename("right_", ct, ".jpg");
-
-    Mat big(Size(1280, 240), CV_8UC1);
-    leftMat.copyTo(big(cv::Rect(0, 0, 640, 240)));
-    rightMat.copyTo(big(cv::Rect(640, 0, 640, 240)));
-
-    imshow("Video Streaming", big);
-    waitKey(10);
-
-    imwrite("streamingData/" + filename1, leftMat);
-    imwrite("streamingData/" + filename2, rightMat);
-
-    counter++;
-    ct++;
+bool file_exists(const string& path) {
+    return std::filesystem::exists(path);
 }
 
-static void pollThread()
-{
+bool load_stereo_calibration(const string& path, StereoCalibration& calib, const Size& image_size) {
+    FileStorage fs(path, FileStorage::READ);
+    if (!fs.isOpened()) {
+        cerr << "Failed to open calibration file: " << path << endl;
+        return false;
+    }
+
+    fs["CM1"] >> calib.CM1;
+    fs["CM2"] >> calib.CM2;
+    fs["D1"] >> calib.D1;
+    fs["D2"] >> calib.D2;
+    fs["R"] >> calib.R;
+    fs["T"] >> calib.T;
+
+    if (calib.CM1.empty() || calib.CM2.empty() || calib.D1.empty() || calib.D2.empty() ||
+        calib.R.empty() || calib.T.empty()) {
+        cerr << "Calibration file is missing required matrices (CM1/CM2/D1/D2/R/T)." << endl;
+        return false;
+    }
+
+    stereoRectify(calib.CM1, calib.D1,
+                  calib.CM2, calib.D2,
+                  image_size,
+                  calib.R, calib.T,
+                  calib.R1, calib.R2, calib.P1, calib.P2, calib.Q,
+                  CALIB_ZERO_DISPARITY,
+                  0.0,
+                  image_size);
+
+    initUndistortRectifyMap(calib.CM1, calib.D1, calib.R1, calib.P1, image_size, CV_32FC1, calib.map1x, calib.map1y);
+    initUndistortRectifyMap(calib.CM2, calib.D2, calib.R2, calib.P2, image_size, CV_32FC1, calib.map2x, calib.map2y);
+
+    calib.ready = true;
+    return true;
+}
+
+static inline float bilerp(float q11, float q21, float q12, float q22, float tx, float ty) {
+    return q11 * (1.0f - tx) * (1.0f - ty) +
+           q21 * tx * (1.0f - ty) +
+           q12 * (1.0f - tx) * ty +
+           q22 * tx * ty;
+}
+
+void build_distortion_remap(const LEAP_DISTORTION_MATRIX& distortion,
+                           int width,
+                           int height,
+                           Mat& map_x,
+                           Mat& map_y) {
+    map_x.create(height, width, CV_32FC1);
+    map_y.create(height, width, CV_32FC1);
+
+    for (int y = 0; y < height; ++y) {
+        const float normY = (height > 1) ? (static_cast<float>(y) / static_cast<float>(height - 1)) : 0.0f;
+        const float calibrationY = 62.0f * (1.0f - normY);
+        const int y1 = std::max(0, std::min(63, static_cast<int>(calibrationY)));
+        const int y2 = std::max(0, std::min(63, y1 + 1));
+        const float ty = calibrationY - std::floor(calibrationY);
+
+        for (int x = 0; x < width; ++x) {
+            const float normX = (width > 1) ? (static_cast<float>(x) / static_cast<float>(width - 1)) : 0.0f;
+            const float calibrationX = 63.0f * normX;
+            const int x1 = std::max(0, std::min(63, static_cast<int>(calibrationX)));
+            const int x2 = std::max(0, std::min(63, x1 + 1));
+            const float tx = calibrationX - std::floor(calibrationX);
+
+            const float dX = bilerp(distortion.matrix[y1][x1].x,
+                                    distortion.matrix[y1][x2].x,
+                                    distortion.matrix[y2][x1].x,
+                                    distortion.matrix[y2][x2].x,
+                                    tx, ty);
+            const float dY = bilerp(distortion.matrix[y1][x1].y,
+                                    distortion.matrix[y1][x2].y,
+                                    distortion.matrix[y2][x1].y,
+                                    distortion.matrix[y2][x2].y,
+                                    tx, ty);
+
+            if (dX >= 0.0f && dX <= 1.0f && dY >= 0.0f && dY <= 1.0f) {
+                map_x.at<float>(y, x) = dX * static_cast<float>(width - 1);
+                map_y.at<float>(y, x) = dY * static_cast<float>(height - 1);
+            } else {
+                map_x.at<float>(y, x) = -1.0f;
+                map_y.at<float>(y, x) = -1.0f;
+            }
+        }
+    }
+}
+
+Mat undistort_leap_frame(const Mat& raw,
+                         const LEAP_DISTORTION_MATRIX& distortion,
+                         Mat& map_x,
+                         Mat& map_y,
+                         bool& map_initialized) {
+    if (raw.empty()) {
+        return Mat();
+    }
+
+    if (!map_initialized || map_x.size() != raw.size() || map_y.size() != raw.size()) {
+        build_distortion_remap(distortion, raw.cols, raw.rows, map_x, map_y);
+        map_initialized = true;
+    }
+
+    Mat corrected;
+    remap(raw, corrected, map_x, map_y, INTER_LINEAR, BORDER_CONSTANT, Scalar(0));
+    return corrected;
+}
+
+DisparityResult compute_disparity_quality(const Mat& left_rect, const Mat& right_rect) {
+    DisparityResult out;
+
+    const int num_disparities = 128;
+    const int block_size = 5;
+
+    Ptr<StereoSGBM> left_matcher = StereoSGBM::create(0, num_disparities, block_size);
+    left_matcher->setPreFilterCap(63);
+    left_matcher->setUniquenessRatio(10);
+    left_matcher->setSpeckleWindowSize(100);
+    left_matcher->setSpeckleRange(2);
+    left_matcher->setDisp12MaxDiff(1);
+    left_matcher->setP1(8 * block_size * block_size);
+    left_matcher->setP2(32 * block_size * block_size);
+    left_matcher->setMode(StereoSGBM::MODE_SGBM_3WAY);
+
+    Ptr<StereoMatcher> right_matcher = createRightMatcher(left_matcher);
+    Ptr<DisparityWLSFilter> wls_filter = createDisparityWLSFilter(left_matcher);
+    wls_filter->setLambda(12000.0);
+    wls_filter->setSigmaColor(1.3);
+
+    Mat right_disp;
+    left_matcher->compute(left_rect, right_rect, out.disparity16);
+    right_matcher->compute(right_rect, left_rect, right_disp);
+
+    Mat filtered16;
+    wls_filter->filter(out.disparity16, left_rect, filtered16, right_disp);
+    out.confidence = wls_filter->getConfidenceMap().clone();
+
+    out.disparity16 = filtered16;
+    out.disparity16.convertTo(out.disparity32, CV_32F, 1.0 / 16.0);
+    getDisparityVis(out.disparity16, out.disparityVis, 1.0);
+
+    return out;
+}
+
+void write_disparity_outputs(const DisparityResult& disparity) {
+    imwrite("streamingData/filtered_disparity_vis.png", disparity.disparityVis);
+
+    FileStorage fs("streamingData/disparity_metric.yml", FileStorage::WRITE);
+    fs << "disparity32" << disparity.disparity32;
+    fs << "confidence" << disparity.confidence;
+    fs.release();
+}
+
+pcl::PointCloud<pcl::PointXYZ>::Ptr build_cloud_from_depth(const Mat& xyz,
+                                                           const Mat& disparity32,
+                                                           const Mat& confidence) {
+    auto cloud = boost::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+    cloud->reserve(static_cast<size_t>(xyz.rows * xyz.cols));
+
+    const float confidence_threshold = 64.0f;
+
+    for (int y = 0; y < xyz.rows; ++y) {
+        const Vec3f* xyz_row = xyz.ptr<Vec3f>(y);
+        const float* disp_row = disparity32.ptr<float>(y);
+        const float* conf_row = confidence.ptr<float>(y);
+        for (int x = 0; x < xyz.cols; ++x) {
+            const float d = disp_row[x];
+            const float conf = conf_row[x];
+            if (!(d > 0.0f) || conf < confidence_threshold) {
+                continue;
+            }
+
+            const Vec3f p = xyz_row[x];
+            if (!std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2])) {
+                continue;
+            }
+            if (p[2] <= 0.0f || p[2] > 1500.0f) {
+                continue;
+            }
+
+            cloud->push_back(pcl::PointXYZ(p[0], p[1], p[2]));
+        }
+    }
+
+    cloud->width = static_cast<uint32_t>(cloud->size());
+    cloud->height = 1;
+    cloud->is_dense = false;
+    return cloud;
+}
+
+pcl::PointCloud<pcl::PointXYZ>::Ptr filter_point_cloud(pcl::PointCloud<pcl::PointXYZ>::Ptr input) {
+    if (!input || input->empty()) {
+        return input;
+    }
+
+    auto sor_cloud = boost::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+    pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
+    sor.setInputCloud(input);
+    sor.setMeanK(20);
+    sor.setStddevMulThresh(1.0);
+    sor.filter(*sor_cloud);
+
+    auto radius_cloud = boost::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+    pcl::RadiusOutlierRemoval<pcl::PointXYZ> ror;
+    ror.setInputCloud(sor_cloud);
+    ror.setRadiusSearch(8.0);
+    ror.setMinNeighborsInRadius(4);
+    ror.filter(*radius_cloud);
+
+    auto voxel_cloud = boost::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+    pcl::VoxelGrid<pcl::PointXYZ> voxel;
+    voxel.setInputCloud(radius_cloud);
+    voxel.setLeafSize(1.5f, 1.5f, 1.5f);
+    voxel.filter(*voxel_cloud);
+
+    return voxel_cloud;
+}
+
+void process_pipeline(const Mat& left_raw,
+                      const Mat& right_raw,
+                      const LEAP_DISTORTION_MATRIX& left_distortion,
+                      const LEAP_DISTORTION_MATRIX& right_distortion) {
+    if (left_raw.empty() || right_raw.empty()) {
+        cerr << "No frame captured for processing." << endl;
+        return;
+    }
+
+    static Mat left_map_x, left_map_y, right_map_x, right_map_y;
+    static bool left_map_ready = false;
+    static bool right_map_ready = false;
+
+    Mat left_corrected = undistort_leap_frame(left_raw, left_distortion, left_map_x, left_map_y, left_map_ready);
+    Mat right_corrected = undistort_leap_frame(right_raw, right_distortion, right_map_x, right_map_y, right_map_ready);
+
+    if (left_corrected.empty() || right_corrected.empty()) {
+        cerr << "Distortion correction failed." << endl;
+        return;
+    }
+
+    imwrite("streamingData/left_corrected.png", left_corrected);
+    imwrite("streamingData/right_corrected.png", right_corrected);
+
+    StereoCalibration calib;
+    if (!load_stereo_calibration("Leapcalib.yml", calib, left_corrected.size())) {
+        cerr << "Skipping disparity/depth reconstruction due to missing calibration." << endl;
+        return;
+    }
+
+    Mat left_rect, right_rect;
+    remap(left_corrected, left_rect, calib.map1x, calib.map1y, INTER_LINEAR, BORDER_CONSTANT, Scalar(0));
+    remap(right_corrected, right_rect, calib.map2x, calib.map2y, INTER_LINEAR, BORDER_CONSTANT, Scalar(0));
+
+    imwrite("streamingData/left_rectified.png", left_rect);
+    imwrite("streamingData/right_rectified.png", right_rect);
+
+    DisparityResult disparity = compute_disparity_quality(left_rect, right_rect);
+    write_disparity_outputs(disparity);
+
+    Mat xyz;
+    reprojectImageTo3D(disparity.disparity32, xyz, calib.Q, true, CV_32F);
+
+    auto cloud_raw = build_cloud_from_depth(xyz, disparity.disparity32, disparity.confidence);
+    auto cloud_filtered = filter_point_cloud(cloud_raw);
+
+    if (!cloud_raw || cloud_raw->empty()) {
+        cerr << "Generated point cloud is empty." << endl;
+        return;
+    }
+
+    pcl::io::savePCDFileBinary("streamingData/cloud_raw.pcd", *cloud_raw);
+    if (cloud_filtered && !cloud_filtered->empty()) {
+        pcl::io::savePCDFileBinary("streamingData/cloud_filtered.pcd", *cloud_filtered);
+    }
+
+    cout << "Pipeline complete: corrected, rectified, disparity, and cloud outputs are in streamingData/." << endl;
+}
+
+void handle_image_event(const LEAP_IMAGE_EVENT* image_event) {
+    const uint32_t width = image_event->image[0].properties.width;
+    const uint32_t height = image_event->image[0].properties.height;
+
+    const uint8_t* left_pixels = g_image_buffer.data() + image_event->image[0].offset;
+    const uint8_t* right_pixels = g_image_buffer.data() + image_event->image[1].offset;
+
+    Mat left(height, width, CV_8UC1, const_cast<uint8_t*>(left_pixels));
+    Mat right(height, width, CV_8UC1, const_cast<uint8_t*>(right_pixels));
+
+    Mat left_copy = left.clone();
+    Mat right_copy = right.clone();
+
+    {
+        lock_guard<mutex> lock(g_frame_mutex);
+        g_latest_left_raw = left_copy;
+        g_latest_right_raw = right_copy;
+        g_latest_left_distortion = *image_event->image[0].distortion_matrix;
+        g_latest_right_distortion = *image_event->image[1].distortion_matrix;
+        g_has_frame = true;
+    }
+
+    Mat preview(left.rows, left.cols * 2, CV_8UC1);
+    left.copyTo(preview(Rect(0, 0, left.cols, left.rows)));
+    right.copyTo(preview(Rect(left.cols, 0, right.cols, right.rows)));
+    imshow("Video Streaming", preview);
+    waitKey(1);
+
+    if (!g_saved_preview) {
+        imwrite("streamingData/left_raw_preview.png", left_copy);
+        imwrite("streamingData/right_raw_preview.png", right_copy);
+        g_saved_preview = true;
+    }
+}
+
+void poll_thread() {
     while (g_running) {
-        LEAP_CONNECTION_MESSAGE msg;
+        LEAP_CONNECTION_MESSAGE msg{};
         eLeapRS result = LeapPollConnection(g_connection, 100, &msg);
-        if (result != eLeapRS_Success)
+        if (result != eLeapRS_Success) {
             continue;
+        }
 
         switch (msg.type) {
         case eLeapEventType_Connection:
@@ -154,7 +395,7 @@ static void pollThread()
             break;
         }
         case eLeapEventType_Image:
-            handleImageEvent(msg.image_event);
+            handle_image_event(msg.image_event);
             break;
         default:
             break;
@@ -162,450 +403,51 @@ static void pollThread()
     }
 }
 
-void distortion(String image){
-
-	Mat ImageMat = imread(image, IMREAD_COLOR);
-
-	imshow("initial", ImageMat);
-	waitKey(20);
-
-	const unsigned int cmWidth = 320;
-	const unsigned int cmHeight = 120;
-
-	// compute the calibration map by transforming image locations to values between 0 and 1 for legal positions.
-	float calibMap[cmWidth*cmHeight * 2];
-	for (unsigned int y = 0; y < cmHeight; ++y)
-		for (unsigned int x = 0; x < cmWidth; ++x)
-		{
-			scanner::CalibrationCoord calibrationCoord = scanner::calibration_coord(x, y, cmWidth, cmHeight);
-			calibMap[y*cmWidth * 2 + 2 * x] = calibrationCoord.x;
-			calibMap[y*cmWidth * 2 + 2 * x + 1] = calibrationCoord.y;
-		}
-
-
-	// NOW you have the initial situation of your scenario: calibration map and distorted image...
-
-	// compute the image locations of calibration map values:
-	Mat cMapMatX = Mat(cmHeight, cmWidth, CV_32FC1);
-	Mat cMapMatY = Mat(cmHeight, cmWidth, CV_32FC1);
-	for (int j = 0; j<cmHeight; ++j)
-		for (int i = 0; i<cmWidth; ++i)
-		{
-			cMapMatX.at<float>(j, i) = calibMap[j*cmWidth * 2 + 2 * i];
-			cMapMatY.at<float>(j, i) = calibMap[j*cmWidth * 2 + 2 * i + 1];
-		}
-
-
-	// interpolate those values for each of your original images pixel:
-	// here I use linear interpolation, you could use cubic or other interpolation too.
-	resize(cMapMatX, cMapMatX, ImageMat.size(), 0, 0, INTER_LINEAR);
-	resize(cMapMatY, cMapMatY, ImageMat.size(), 0, 0, INTER_LINEAR);
-
-
-	// now the calibration map has the size of your original image, but its values are still between 0 and 1 (for legal positions)
-	// so scale to image size:
-	cMapMatX = ImageMat.cols * cMapMatX;
-	cMapMatY = ImageMat.rows * cMapMatY;
-
-
-	// now create undistorted image:
-	Mat undistortedImage = Mat(ImageMat.rows, ImageMat.cols, CV_8UC3);
-	undistortedImage.setTo(Vec3b(0, 0, 0));   // initialize black
-
-
-	for (int j = 0; j<undistortedImage.rows; ++j)
-		for (int i = 0; i<undistortedImage.cols; ++i)
-		{
-			Point undistPosition;
-			undistPosition.x = (cMapMatX.at<float>(j, i)); // this will round the position, maybe you want interpolation instead
-			undistPosition.y = (cMapMatY.at<float>(j, i));
-
-			if (scanner::is_within_bounds(undistPosition.x, undistPosition.y, ImageMat.cols, ImageMat.rows)) {
-				undistortedImage.at<Vec3b>(j, i) = ImageMat.at<Vec3b>(undistPosition);
-			}
-
-		}
-
-	Mat output = undistortedImage(Rect(10, 20, 300, 200));
-	waitKey(100);
-
-	stringstream ss;
-	//string Imagename = "Image_";
-
-	string type = ".jpg";
-
-	ss << (ct + 1) << type;
-
-	string filename = ss.str();
-	imshow("undistorted", output);
-
-	imwrite("streamingData/distortData/" + filename, output);
-	ct++;
-	waitKey(100);
-}
-void disparity(String leftImage, String rightImage)
-{
-	//int SADWindowSize = 0;
-	
-	//String dst_conf_path = parser.get<String>("dst_conf_path");
-	String algo = "sgbm";
-	String filter = "wls_conf";
-
-	//bool no_downscale = true;
-	//  int max_disp = parser.get<int>("max_disparity");
-	double lambda = 8000.0;
-	double sigma = 2.0;
-	double vis_mult = 9.0;
-	int sgbmWinSize = 9;
-	//int wsize = sgbmWinSize;
-	//int numberOfDisparities = 16*3;
-	Mat disp, disp8;
-
-	Mat left = imread(leftImage, IMREAD_GRAYSCALE);
-	Mat right = imread(rightImage, IMREAD_GRAYSCALE);
-
-	Mat left_for_matcher, right_for_matcher;
-	Mat left_disp, right_disp;
-	Mat filtered_disp;
-	Mat conf_map = Mat(left.rows, left.cols, CV_8U);
-	conf_map = Scalar(255);
-	Rect ROI;
-
-	Ptr<DisparityWLSFilter> wls_filter;
-
-	left_for_matcher = left.clone();
-	right_for_matcher = right.clone();
-
-	resize(left, left_for_matcher, Size(), 0.5, 0.5);
-	resize(right, right_for_matcher, Size(), 0.5, 0.5);
-
-
-	Ptr<StereoSGBM> left_matcher = StereoSGBM::create(0, 16 , 3);
-	left_matcher->setPreFilterCap(63);
-	//int sgbmWinSize = SADWindowSize > 0 ? SADWindowSize : 3;
-
-	//sgbm->setBlockSize(sgbmWinSize);
-
-	//int cn = left.channels();
-
-	left_matcher->setP1(24 * sgbmWinSize*sgbmWinSize);
-	left_matcher->setP2(96 * sgbmWinSize*sgbmWinSize);
-	/* sgbm->setMinDisparity(1);
-	sgbm->setNumDisparities(numberOfDisparities);
-	sgbm->setUniquenessRatio(5);
-	sgbm->setSpeckleWindowSize(100);
-	sgbm->setSpeckleRange(32);
-	sgbm->setDisp12MaxDiff(1);*/
-	left_matcher->setMode(StereoSGBM::MODE_SGBM_3WAY);
-	wls_filter = createDisparityWLSFilter(left_matcher);
-
-
-	Ptr<StereoMatcher> right_matcher = createRightMatcher(left_matcher);
-
-	left_matcher->compute(left_for_matcher, right_for_matcher, left_disp);
-	right_matcher->compute(right_for_matcher, left_for_matcher, right_disp);
-
-	wls_filter->setLambda(lambda);
-	wls_filter->setSigmaColor(sigma);
-	wls_filter->filter(left_disp, left, filtered_disp, right_disp);
-	conf_map = wls_filter->getConfidenceMap();
-
-	ROI = wls_filter->getROI();
-
-	resize(left_disp, left_disp, Size(), 2.0, 2.0);
-	left_disp = left_disp*2.0;
-	ROI = Rect(ROI.x * 2, ROI.y * 2, ROI.width * 2, ROI.height * 2);
-
-	Mat raw_disp_vis;
-	getDisparityVis(left_disp, raw_disp_vis, vis_mult);
-	namedWindow("raw disparity", WINDOW_AUTOSIZE);
-	imshow("raw disparity", raw_disp_vis);
-	Mat filtered_disp_vis;
-	getDisparityVis(filtered_disp, filtered_disp_vis, vis_mult);
-	namedWindow("filtered disparity", WINDOW_AUTOSIZE);
-	imshow("filtered disparity", filtered_disp_vis);
-	imwrite("streamingData/filtered_disparity3.jpg", filtered_disp_vis);
-	waitKey(0);
-
-	//disp.convertTo(disp8, CV_8U);
-	/*  disp.convertTo(disp8, CV_8U, 255/(numberOfDisparities*16.));
-
-	imshow("WindowDisparity", disp8);
-
-	waitKey(0);*/
-	//return filtered_disp_vis;
-}
-
-/*
-String disparity(String left, String right){
-	Mat img1, img2, g1, g2;
-	Mat disp, disp8;
-
-	img1 = imread(left, CV_8UC1);
-	img2 = imread(right, CV_8UC1);
-
-	StereoBM sbm;
-	sbm.state->SADWindowSize = 11;
-	sbm.state->numberOfDisparities = 96;
-	sbm.state->preFilterSize = 7;
-	sbm.state->preFilterCap = 61;
-	sbm.state->minDisparity = -39;
-	sbm.state->textureThreshold = 1500;
-	sbm.state->uniquenessRatio = 0;
-	sbm.state->speckleWindowSize = 0;
-	sbm.state->speckleRange = 8;
-	sbm.state->disp12MaxDiff = 1;
-	sbm(img1, img2, disp);
-	
-	StereoSGBM sgbm;
-	sgbm.SADWindowSize = 21;
-	sgbm.numberOfDisparities = 128;
-	sgbm.preFilterCap = 4;
-	sgbm.minDisparity = -64;
-	sgbm.uniquenessRatio = 1;
-	sgbm.speckleWindowSize = 150;
-	sgbm.speckleRange = 2;
-	sgbm.disp12MaxDiff = 10;
-	sgbm.fullDP = false;
-	sgbm.P1 = 600;
-	sgbm.P2 = 2400;
-	sgbm(img1, img2, disp);
-	
-	waitKey(500);
-	normalize(disp, disp8, 0, 255, NORM_MINMAX, CV_32FC1);
-	waitKey(100);
-	imshow("left", img1);
-	imshow("right", img2);
-	waitKey(100);
-	imshow("disp", disp8);
-	waitKey(100);
-	String filename = "disparity.tiff";
-	waitKey(500);
-	imwrite(filename, disp8);
-	waitKey(100);
-	return filename;
-}
-*/
-
-String pcd_writer(String pcdname){
-	pcl::PointCloud<pcl::PointXYZ> cloud;
-	Mat depth_image = cv::imread(pcdname, IMREAD_ANYDEPTH | IMREAD_ANYCOLOR);
-	depth_image.convertTo(depth_image, CV_32F); // convert the image data to float type 
-
-	if (!depth_image.data)
-	{
-		std::cerr << "No depth data!!!" << std::endl;
-		exit(EXIT_FAILURE);
-	}
-
-	const float dc1 = 0.66999066565804488;//0.0030711016;
-	const float dc2 = 0.70185345602029203;
-	const float fx_d = 1.8139592173744651e+002; //fx
-	const float fy_d = 1.8139592173744651e+002; //fy
-	const float px_d = 3.1738099136734206e+002; //cx
-	const float py_d = 1.3835989671763309e+002; //cy
-
-	cloud.width = depth_image.cols; //Dimensions must be initialized to use 2-D indexing 
-	cloud.height = depth_image.rows;
-
-	cloud.resize(cloud.width*cloud.height);
-	for (int v = 0; v < depth_image.rows; v++)
-		//2-D indexing 
-		for (int u = 0; u < depth_image.cols; u++)
-		{
-			scanner::Point3f point3d = scanner::depth_to_point(depth_image.at<float>(v, u), u, v,
-				dc1, dc2, fx_d, fy_d, px_d, py_d);
-			cloud(u, v).x = point3d.x;
-			cloud(u, v).y = point3d.y;
-			cloud(u, v).z = point3d.z;
-		}
-	String temp = "pclcode.pcd";
-	pcl::io::savePCDFileASCII(temp, cloud);
-	std::cerr << "Saved " << cloud.points.size() << " data points to .pcd file." << std::endl;
-	return temp;
-}
-
-
-void cloud_viewer(String viewername){
-	PointCloud<PointXYZ>::Ptr cloud(new PointCloud<PointXYZ>);
-	io::loadPCDFile(viewername, *cloud);
-
-	visualization::CloudViewer viewer("Cloud Viewer");
-
-	viewer.showCloud(cloud);
-
-	while (!viewer.wasStopped()){}
-}
-void openpcd(string name)
-{
-	Mat depth_image = cv::imread(name, IMREAD_ANYDEPTH | IMREAD_ANYCOLOR);
-	depth_image.convertTo(depth_image, CV_32F);
-	const double max_z = 1.0e4;
-	FILE* fp = fopen("openpcd.pcd", "wt");
-	for (int y = 0; y < depth_image.rows; y++)
-	{
-		for (int x = 0; x <depth_image.cols; x++)
-		{
-			Vec3f point = depth_image.at<Vec3f>(y, x);
-			if (fabs(point[2] - max_z) < FLT_EPSILON || fabs(point[2]) > max_z) 
-				continue;
-			fprintf(fp, "%f %f %f\n", point[0], point[1], point[2]);
-		}
-	}
-	fclose(fp);
-	
-}
-/*
-void Triangulation_viwer(String pcdname){
-
-	// Load input file into a PointCloud<T> with an appropriate type
-	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
-	pcl::PCLPointCloud2 cloud_blob;
-	pcl::io::loadPCDFile(pcdname, cloud_blob);
-	pcl::fromPCLPointCloud2(cloud_blob, *cloud);
-	//* the data should be available in cloud
-
-	// Normal estimation*
-	pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> n;
-	pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
-	pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
-	tree->setInputCloud(cloud);
-	n.setInputCloud(cloud);
-	n.setSearchMethod(tree);
-	n.setKSearch(20);
-	n.compute(*normals);
-	//* normals should not contain the point normals + surface curvatures
-
-	// Concatenate the XYZ and normal fields*
-	pcl::PointCloud<pcl::PointNormal>::Ptr cloud_with_normals(new pcl::PointCloud<pcl::PointNormal>);
-	pcl::concatenateFields(*cloud, *normals, *cloud_with_normals);
-	//* cloud_with_normals = cloud + normals
-
-	// Create search tree*
-	pcl::search::KdTree<pcl::PointNormal>::Ptr tree2(new pcl::search::KdTree<pcl::PointNormal>);
-	tree2->setInputCloud(cloud_with_normals);
-
-	// Initialize objects
-	pcl::GreedyProjectionTriangulation<pcl::PointNormal> gp3;
-	pcl::PolygonMesh triangles;
-
-	// Set the maximum distance between connected points (maximum edge length)
-	gp3.setSearchRadius(2.025);
-
-	// Set typical values for the parameters
-	gp3.setMu(2.5);
-	gp3.setMaximumNearestNeighbors(100);
-	gp3.setMaximumSurfaceAngle(M_PI / 4); // 45 degrees
-	gp3.setMinimumAngle(M_PI / 18); // 10 degrees
-	gp3.setMaximumAngle(2 * M_PI / 3); // 120 degrees
-	gp3.setNormalConsistency(false);
-
-	// Get result
-	gp3.setInputCloud(cloud_with_normals);
-	gp3.setSearchMethod(tree2);
-	gp3.reconstruct(triangles);
-
-	// Additional vertex information
-	std::vector<int> parts = gp3.getPartIDs();
-	std::vector<int> states = gp3.getPointStates();
-
-
-	// Save visualization cloud
-	pcl::io::saveVTKFile("custom1.vtk", triangles);
-
-	//pcl::io::savePLYFile("triangulation.ply",triangles);
-
-	// Finish
-
-
-	std::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("3D Viewer"));
-
-	pcl::PolygonMesh::Ptr mesh(new pcl::PolygonMesh);
-	pcl::io::loadPolygonFileVTK("custom1.vtk", *mesh);
-	viewer->addPolygonMesh(*mesh, "view");
-	viewer->resetCameraViewpoint("view");
-	while (!viewer->wasStopped())
-		viewer->spinOnce(100);
-}
-*/
-/*
-void readfile(vector<string> &filenames, string folder)
-{
-	path dir(folder);
-	directory_iterator itr(dir), end_itr;
-
-	string current_file = itr->path().string();
-
-	for (; itr != end_itr; ++itr)
-	{
-		if (is_regular_file(itr->path()))
-		{
-			string filename = itr->path().filename().string(); // returns just filename
-			filenames.push_back(filename);
-		}
-	}
-}
-*/
-int main()
-{
-	// Open the LeapC connection and enable image streaming
-	// Create output directories before starting capture
-	std::filesystem::create_directories("streamingData/distortData");
-
-	eLeapRS res = LeapCreateConnection(nullptr, &g_connection);
-	if (res != eLeapRS_Success) {
-		cerr << "LeapCreateConnection failed: " << res << endl;
-		return 1;
-	}
-	res = LeapOpenConnection(g_connection);
-	if (res != eLeapRS_Success) {
-		cerr << "LeapOpenConnection failed: " << res << endl;
-		LeapDestroyConnection(g_connection);
-		return 1;
-	}
-	LeapSetPolicyFlags(g_connection, eLeapPolicyFlag_Images, 0);
-
-	g_running = true;
-	thread poller(pollThread);
-
-	// Wait for the user to press Enter, then stop capturing
-	cin.get();
-
-	g_running = false;
-	poller.join();
-	LeapCloseConnection(g_connection);
-	LeapDestroyConnection(g_connection);
-
-	//sample image of left and right camera
-	//String left = "Left_1.jpg";
-	//String right ="Right_1.jpg";
-	
-	//left camera image pass to distortion function
-	//String image1 = distortion(left);
-
-	//right camera image pass to distortion function
-	//String image2 = distortion(right);
-
-	// disparity map of left & right camera image
-	//Mat disparityfile = disparity(image1, image2);
-	//disparity(image1, image2);
-	//imshow("disparityImage", disparityfile);
-	//imwrite("disparity.jpg",disparityfile);
-	//backcut algorithm
-
-	//custom point cloud writer "not working still in process" d
-	//Mat file = imread("pencil45.png",CV_32F);
-	//String pcdfile = pcd_writer("pencil45.png"/*disparityfile*/);
-	//String file = "pclcode_pcd.pcd";
-	// Simple point cloud visualization
-	//openpcd("pencil45.png");
-	//string pcdfile = "openpcd.pcd";
-	//cloud_viewer(pcdfile);
-
-	//destroyAllWindows();
-
-	//3D surface construction on triangulated point clouds
-	//Triangulation_viwer("custom1.pcd");
-
-	return 0;
+}  // namespace
+
+int main() {
+    std::filesystem::create_directories("streamingData");
+
+    eLeapRS res = LeapCreateConnection(nullptr, &g_connection);
+    if (res != eLeapRS_Success) {
+        cerr << "LeapCreateConnection failed: " << res << endl;
+        return 1;
+    }
+
+    res = LeapOpenConnection(g_connection);
+    if (res != eLeapRS_Success) {
+        cerr << "LeapOpenConnection failed: " << res << endl;
+        LeapDestroyConnection(g_connection);
+        return 1;
+    }
+
+    LeapSetPolicyFlags(g_connection, eLeapPolicyFlag_Images, 0);
+
+    g_running = true;
+    thread poller(poll_thread);
+
+    cout << "Capturing frames. Press Enter to stop and run reconstruction..." << endl;
+    cin.get();
+
+    g_running = false;
+    poller.join();
+
+    Mat left_raw, right_raw;
+    LEAP_DISTORTION_MATRIX left_distortion{}, right_distortion{};
+    {
+        lock_guard<mutex> lock(g_frame_mutex);
+        if (g_has_frame) {
+            left_raw = g_latest_left_raw.clone();
+            right_raw = g_latest_right_raw.clone();
+            left_distortion = g_latest_left_distortion;
+            right_distortion = g_latest_right_distortion;
+        }
+    }
+
+    process_pipeline(left_raw, right_raw, left_distortion, right_distortion);
+
+    LeapCloseConnection(g_connection);
+    LeapDestroyConnection(g_connection);
+
+    return 0;
 }

@@ -1,0 +1,19 @@
+Start testing: May 13 23:11 UTC
+----------------------------------------------------------
+1/1 Testing: scanner_math_tests
+1/1 Test: scanner_math_tests
+Command: "/home/runner/work/LeapMotion3DScanner/LeapMotion3DScanner/build-tests/scanner_math_tests"
+Directory: /home/runner/work/LeapMotion3DScanner/LeapMotion3DScanner/build-tests
+"scanner_math_tests" start time: May 13 23:11 UTC
+Output:
+----------------------------------------------------------
+All scanner_math tests passed
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"scanner_math_tests" end time: May 13 23:11 UTC
+"scanner_math_tests" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: May 13 23:11 UTC
