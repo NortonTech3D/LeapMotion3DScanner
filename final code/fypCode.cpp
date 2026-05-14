@@ -106,7 +106,7 @@ ReconstructionMode get_reconstruction_mode() {
 
     string value = quality_env;
     transform(value.begin(), value.end(), value.begin(),
-              [](unsigned char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
+              [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
 
     if (value == "preview" || value == "fast") {
         return ReconstructionMode::FastPreview;
@@ -286,7 +286,9 @@ float compute_adaptive_confidence_threshold(const Mat& confidence,
         return std::clamp(confidence_values.front(), 32.0f, 224.0f);
     }
 
-    const size_t percentile_index = static_cast<size_t>(std::clamp(percentile, 0.0f, 1.0f) * static_cast<float>(confidence_values.size() - 1));
+    const float normalized_percentile = std::clamp(percentile, 0.0f, 1.0f);
+    const float raw_index = normalized_percentile * static_cast<float>(confidence_values.size() - 1);
+    const size_t percentile_index = std::min(confidence_values.size() - 1, static_cast<size_t>(raw_index));
     std::nth_element(confidence_values.begin(), confidence_values.begin() + static_cast<std::ptrdiff_t>(percentile_index), confidence_values.end());
     const float percentile_value = confidence_values[percentile_index];
     return std::clamp(percentile_value, 32.0f, 224.0f);

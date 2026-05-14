@@ -31,6 +31,7 @@ static const double MIN_CENTROID_SPREAD_X = 0.20;
 static const double MIN_CENTROID_SPREAD_Y = 0.15;
 static const double MIN_OUTLIER_REJECTION_THRESHOLD = 1.0;
 static const double MEDIAN_OUTLIER_REJECTION_SCALE = 1.6;
+static const double DEFAULT_REJECTION_THRESHOLD = 1.5;
 
 struct CalibrationQuality {
     double stereoRms = std::numeric_limits<double>::infinity();
@@ -56,6 +57,7 @@ static vector<Point3f> buildObjTemplate() {
     vector<Point3f> obj;
     obj.reserve(BOARD_N);
     for (int j = 0; j < BOARD_N; j++) {
+        // Chessboard object points follow x=column and y=row for OpenCV conventions.
         obj.push_back(Point3f(static_cast<float>(j % BOARD_W) * BOARD_SQUARE_SIZE_MM,
                               static_cast<float>(j / BOARD_W) * BOARD_SQUARE_SIZE_MM,
                               0.0f));
@@ -129,6 +131,18 @@ static bool compute_view_errors(const vector<vector<Point3f>>& obj_points,
     }
 
     return true;
+}
+
+static double median_from_sorted(const vector<double>& sorted_values) {
+    if (sorted_values.empty()) {
+        return std::numeric_limits<double>::infinity();
+    }
+    if (sorted_values.size() % 2 == 0) {
+        const size_t right = sorted_values.size() / 2;
+        const size_t left = right - 1;
+        return (sorted_values[left] + sorted_values[right]) * 0.5;
+    }
+    return sorted_values[sorted_values.size() / 2];
 }
 
 static void measure_pose_coverage(const vector<vector<Point2f>>& points,
@@ -211,7 +225,7 @@ static bool quality_gate_and_save(const vector<vector<Point3f>>& obj_points,
     }
 
     sort(finite_errors.begin(), finite_errors.end());
-    quality.medianReprojection = finite_errors[finite_errors.size() / 2];
+    quality.medianReprojection = median_from_sorted(finite_errors);
     quality.meanReprojection = accumulate(finite_errors.begin(), finite_errors.end(), 0.0) /
                                static_cast<double>(finite_errors.size());
     quality.maxReprojection = finite_errors.back();
@@ -314,10 +328,10 @@ static void runCalibration(Size imageSize) {
         }
     }
 
-    double rejection_threshold = 1.5;
+    double rejection_threshold = DEFAULT_REJECTION_THRESHOLD;
     if (!sorted_errors.empty()) {
         sort(sorted_errors.begin(), sorted_errors.end());
-        const double median_err = sorted_errors[sorted_errors.size() / 2];
+        const double median_err = median_from_sorted(sorted_errors);
         rejection_threshold = std::max(MIN_OUTLIER_REJECTION_THRESHOLD,
                                        median_err * MEDIAN_OUTLIER_REJECTION_SCALE);
     }
@@ -331,8 +345,10 @@ static void runCalibration(Size imageSize) {
     }
 
     if (static_cast<int>(filtered_obj.size()) < MIN_BOARDS_AFTER_REJECTION) {
-        cerr << "Rejected too many views (" << (object_points.size() - filtered_obj.size())
-             << "), falling back to all samples." << endl;
+        cerr << "Only " << filtered_obj.size()
+             << " boards remain after outlier rejection (minimum required: "
+             << MIN_BOARDS_AFTER_REJECTION << "). Using all " << object_points.size()
+             << " boards instead. For better calibration, collect more diverse board poses." << endl;
         filtered_obj = object_points;
         filtered_left = imagePoints1;
         filtered_right = imagePoints2;
