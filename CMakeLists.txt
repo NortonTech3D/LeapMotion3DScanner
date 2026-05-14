@@ -74,8 +74,8 @@ endif()
 
 if(LEAP_ENABLE_NATIVE_OPTIMIZATIONS)
     if(APPLE AND _IS_APPLE_ARM64)
-        # Tuned for Apple Silicon (including M1 Max); can be overridden by users.
-        add_compile_options("$<$<AND:$<CONFIG:Release>,$<COMPILE_LANGUAGE:CXX>>:-mcpu=apple-m1>")
+        # Use native Apple Silicon tuning (M1/M2/M3/M4) for release builds.
+        add_compile_options("$<$<AND:$<CONFIG:Release>,$<COMPILE_LANGUAGE:CXX>>:-mcpu=native>")
     elseif(NOT APPLE)
         add_compile_options("$<$<AND:$<CONFIG:Release>,$<COMPILE_LANGUAGE:CXX>>:-march=native>")
     endif()
