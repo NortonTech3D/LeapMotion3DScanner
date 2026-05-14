@@ -9,8 +9,15 @@
 #include <pcl/filters/radius_outlier_removal.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/filters/voxel_grid.h>
+#include <pcl/registration/icp.h>
+#include <pcl/common/transforms.h>
 #include <atomic>
+#include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstddef>
+#include <cstdlib>
+#include <deque>
 #include <filesystem>
 #include <iostream>
 #include <limits>
@@ -29,6 +36,30 @@ namespace {
 static const uint32_t CAMERA_WIDTH = 640;
 static const uint32_t CAMERA_HEIGHT = 240;
 static const uint64_t IMAGE_BUFFER_SIZE = CAMERA_WIDTH * CAMERA_HEIGHT * 2;
+static const size_t MAX_CAPTURED_FRAMES = 20;
+static const uint64_t FRAME_SAMPLE_STRIDE = 2;
+static const char* QUALITY_MODE_PREVIEW = "preview";
+static const char* QUALITY_MODE_HIGH = "high";
+
+enum class ReconstructionMode {
+    FastPreview,
+    HighQuality,
+};
+
+struct ReconstructionConfig {
+    int numDisparities;
+    int blockSize;
+    int uniquenessRatio;
+    int speckleWindowSize;
+    int speckleRange;
+    int disp12MaxDiff;
+    double wlsLambda;
+    double wlsSigma;
+    float voxelLeafSize;
+    float confidencePercentile;
+    int maxIcpIterations;
+    double maxIcpFitness;
+};
 
 struct StereoCalibration {
     Mat CM1, CM2, D1, D2, R, T;
@@ -42,6 +73,16 @@ struct DisparityResult {
     Mat disparity32;
     Mat confidence;
     Mat disparityVis;
+    Rect roi;
+    float adaptiveConfidenceThreshold = 64.0f;
+};
+
+struct CapturedFrame {
+    Mat leftRaw;
+    Mat rightRaw;
+    LEAP_DISTORTION_MATRIX leftDistortion{};
+    LEAP_DISTORTION_MATRIX rightDistortion{};
+    uint64_t frameId = 0;
 };
 
 LEAP_CONNECTION g_connection{};
@@ -54,9 +95,58 @@ LEAP_DISTORTION_MATRIX g_latest_left_distortion{};
 LEAP_DISTORTION_MATRIX g_latest_right_distortion{};
 bool g_has_frame = false;
 bool g_saved_preview = false;
+uint64_t g_image_event_counter = 0;
+deque<CapturedFrame> g_captured_frames;
 
-bool file_exists(const string& path) {
-    return std::filesystem::exists(path);
+ReconstructionMode get_reconstruction_mode() {
+    const char* quality_env = std::getenv("SCANNER_QUALITY");
+    if (!quality_env) {
+        return ReconstructionMode::HighQuality;
+    }
+
+    string value = quality_env;
+    transform(value.begin(), value.end(), value.begin(),
+              [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
+
+    if (value == "preview" || value == "fast") {
+        return ReconstructionMode::FastPreview;
+    }
+
+    return ReconstructionMode::HighQuality;
+}
+
+ReconstructionConfig build_reconstruction_config(ReconstructionMode mode) {
+    if (mode == ReconstructionMode::FastPreview) {
+        return ReconstructionConfig{
+            96,
+            5,
+            12,
+            120,
+            3,
+            1,
+            10000.0,
+            1.4,
+            1.5f,
+            0.50f,
+            35,
+            3.0,
+        };
+    }
+
+    return ReconstructionConfig{
+        160,
+        3,
+        8,
+        80,
+        2,
+        1,
+        14000.0,
+        1.2,
+        0.75f,
+        0.35f,
+        75,
+        2.0,
+    };
 }
 
 bool load_stereo_calibration(const string& path, StereoCalibration& calib, const Size& image_size) {
@@ -165,38 +255,85 @@ Mat undistort_leap_frame(const Mat& raw,
     return corrected;
 }
 
-DisparityResult compute_disparity_quality(const Mat& left_rect, const Mat& right_rect) {
+Mat apply_clahe_normalization(const Mat& input) {
+    Mat normalized;
+    Ptr<CLAHE> clahe = createCLAHE(2.0, Size(8, 8));
+    clahe->apply(input, normalized);
+    return normalized;
+}
+
+float compute_adaptive_confidence_threshold(const Mat& confidence,
+                                            const Mat& disparity32,
+                                            const Rect& roi,
+                                            float percentile) {
+    vector<float> confidence_values;
+    confidence_values.reserve(static_cast<size_t>(roi.area() / 2));
+
+    for (int y = roi.y; y < roi.y + roi.height; ++y) {
+        const float* conf_row = confidence.ptr<float>(y);
+        const float* disp_row = disparity32.ptr<float>(y);
+        for (int x = roi.x; x < roi.x + roi.width; ++x) {
+            if (disp_row[x] > 0.0f) {
+                confidence_values.push_back(conf_row[x]);
+            }
+        }
+    }
+
+    if (confidence_values.empty()) {
+        return 64.0f;
+    }
+    if (confidence_values.size() == 1) {
+        return std::clamp(confidence_values.front(), 32.0f, 224.0f);
+    }
+
+    const float normalized_percentile = std::clamp(percentile, 0.0f, 1.0f);
+    const float raw_index = normalized_percentile * static_cast<float>(confidence_values.size() - 1);
+    const size_t percentile_index = std::min(confidence_values.size() - 1, static_cast<size_t>(raw_index));
+    std::nth_element(confidence_values.begin(), confidence_values.begin() + static_cast<std::ptrdiff_t>(percentile_index), confidence_values.end());
+    const float percentile_value = confidence_values[percentile_index];
+    return std::clamp(percentile_value, 32.0f, 224.0f);
+}
+
+DisparityResult compute_disparity_quality(const Mat& left_rect,
+                                          const Mat& right_rect,
+                                          const ReconstructionConfig& config) {
     DisparityResult out;
 
-    const int num_disparities = 128;
-    const int block_size = 5;
+    Mat left_norm = apply_clahe_normalization(left_rect);
+    Mat right_norm = apply_clahe_normalization(right_rect);
 
-    Ptr<StereoSGBM> left_matcher = StereoSGBM::create(0, num_disparities, block_size);
+    Ptr<StereoSGBM> left_matcher = StereoSGBM::create(0, config.numDisparities, config.blockSize);
     left_matcher->setPreFilterCap(63);
-    left_matcher->setUniquenessRatio(10);
-    left_matcher->setSpeckleWindowSize(100);
-    left_matcher->setSpeckleRange(2);
-    left_matcher->setDisp12MaxDiff(1);
-    left_matcher->setP1(8 * block_size * block_size);
-    left_matcher->setP2(32 * block_size * block_size);
+    left_matcher->setUniquenessRatio(config.uniquenessRatio);
+    left_matcher->setSpeckleWindowSize(config.speckleWindowSize);
+    left_matcher->setSpeckleRange(config.speckleRange);
+    left_matcher->setDisp12MaxDiff(config.disp12MaxDiff);
+    left_matcher->setP1(8 * config.blockSize * config.blockSize);
+    left_matcher->setP2(32 * config.blockSize * config.blockSize);
     left_matcher->setMode(StereoSGBM::MODE_SGBM_3WAY);
 
     Ptr<StereoMatcher> right_matcher = createRightMatcher(left_matcher);
     Ptr<DisparityWLSFilter> wls_filter = createDisparityWLSFilter(left_matcher);
-    wls_filter->setLambda(12000.0);
-    wls_filter->setSigmaColor(1.3);
+    wls_filter->setLambda(config.wlsLambda);
+    wls_filter->setSigmaColor(config.wlsSigma);
 
     Mat right_disp;
-    left_matcher->compute(left_rect, right_rect, out.disparity16);
-    right_matcher->compute(right_rect, left_rect, right_disp);
+    left_matcher->compute(left_norm, right_norm, out.disparity16);
+    right_matcher->compute(right_norm, left_norm, right_disp);
 
     Mat filtered16;
-    wls_filter->filter(out.disparity16, left_rect, filtered16, right_disp);
+    wls_filter->filter(out.disparity16, left_norm, filtered16, right_disp);
     out.confidence = wls_filter->getConfidenceMap().clone();
 
     out.disparity16 = filtered16;
     out.disparity16.convertTo(out.disparity32, CV_32F, 1.0 / 16.0);
     getDisparityVis(out.disparity16, out.disparityVis, 1.0);
+
+    out.roi = wls_filter->getROI();
+    if (out.roi.width <= 0 || out.roi.height <= 0) {
+        out.roi = Rect(0, 0, out.disparity32.cols, out.disparity32.rows);
+    }
+    out.adaptiveConfidenceThreshold = compute_adaptive_confidence_threshold(out.confidence, out.disparity32, out.roi, config.confidencePercentile);
 
     return out;
 }
@@ -207,22 +344,27 @@ void write_disparity_outputs(const DisparityResult& disparity) {
     FileStorage fs("streamingData/disparity_metric.yml", FileStorage::WRITE);
     fs << "disparity32" << disparity.disparity32;
     fs << "confidence" << disparity.confidence;
+    fs << "wls_roi_x" << disparity.roi.x;
+    fs << "wls_roi_y" << disparity.roi.y;
+    fs << "wls_roi_w" << disparity.roi.width;
+    fs << "wls_roi_h" << disparity.roi.height;
+    fs << "adaptive_confidence_threshold" << disparity.adaptiveConfidenceThreshold;
     fs.release();
 }
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr build_cloud_from_depth(const Mat& xyz,
                                                            const Mat& disparity32,
-                                                           const Mat& confidence) {
+                                                           const Mat& confidence,
+                                                           const Rect& roi,
+                                                           float confidence_threshold) {
     auto cloud = boost::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
-    cloud->reserve(static_cast<size_t>(xyz.rows * xyz.cols));
+    cloud->reserve(static_cast<size_t>(roi.area()));
 
-    const float confidence_threshold = 64.0f;
-
-    for (int y = 0; y < xyz.rows; ++y) {
+    for (int y = roi.y; y < roi.y + roi.height; ++y) {
         const Vec3f* xyz_row = xyz.ptr<Vec3f>(y);
         const float* disp_row = disparity32.ptr<float>(y);
         const float* conf_row = confidence.ptr<float>(y);
-        for (int x = 0; x < xyz.cols; ++x) {
+        for (int x = roi.x; x < roi.x + roi.width; ++x) {
             const float d = disp_row[x];
             const float conf = conf_row[x];
             if (!(d > 0.0f) || conf < confidence_threshold) {
@@ -247,7 +389,8 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr build_cloud_from_depth(const Mat& xyz,
     return cloud;
 }
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr filter_point_cloud(pcl::PointCloud<pcl::PointXYZ>::Ptr input) {
+pcl::PointCloud<pcl::PointXYZ>::Ptr filter_point_cloud(pcl::PointCloud<pcl::PointXYZ>::Ptr input,
+                                                        const ReconstructionConfig& config) {
     if (!input || input->empty()) {
         return input;
     }
@@ -269,69 +412,159 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr filter_point_cloud(pcl::PointCloud<pcl::Poin
     auto voxel_cloud = boost::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
     pcl::VoxelGrid<pcl::PointXYZ> voxel;
     voxel.setInputCloud(radius_cloud);
-    voxel.setLeafSize(1.5f, 1.5f, 1.5f);
+    voxel.setLeafSize(config.voxelLeafSize, config.voxelLeafSize, config.voxelLeafSize);
     voxel.filter(*voxel_cloud);
 
     return voxel_cloud;
 }
 
-void process_pipeline(const Mat& left_raw,
-                      const Mat& right_raw,
-                      const LEAP_DISTORTION_MATRIX& left_distortion,
-                      const LEAP_DISTORTION_MATRIX& right_distortion) {
-    if (left_raw.empty() || right_raw.empty()) {
+bool register_with_icp(const pcl::PointCloud<pcl::PointXYZ>::Ptr& source,
+                       const pcl::PointCloud<pcl::PointXYZ>::Ptr& target,
+                       const ReconstructionConfig& config,
+                       pcl::PointCloud<pcl::PointXYZ>::Ptr& aligned,
+                       Eigen::Matrix4f& transform,
+                       double& fitness_score) {
+    if (!source || source->empty() || !target || target->empty()) {
+        return false;
+    }
+
+    pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
+    icp.setMaximumIterations(config.maxIcpIterations);
+    icp.setMaxCorrespondenceDistance(25.0);
+    icp.setTransformationEpsilon(1e-6);
+    icp.setEuclideanFitnessEpsilon(1e-5);
+    icp.setInputSource(source);
+    icp.setInputTarget(target);
+
+    pcl::PointCloud<pcl::PointXYZ> aligned_stack;
+    icp.align(aligned_stack);
+
+    if (!icp.hasConverged()) {
+        return false;
+    }
+
+    fitness_score = icp.getFitnessScore();
+    if (fitness_score > config.maxIcpFitness) {
+        return false;
+    }
+
+    aligned = boost::make_shared<pcl::PointCloud<pcl::PointXYZ>>(aligned_stack);
+    transform = icp.getFinalTransformation();
+    return true;
+}
+
+void process_pipeline(const vector<CapturedFrame>& frames) {
+    if (frames.empty()) {
         cerr << "No frame captured for processing." << endl;
         return;
     }
+
+    const ReconstructionMode mode = get_reconstruction_mode();
+    const ReconstructionConfig config = build_reconstruction_config(mode);
 
     static Mat left_map_x, left_map_y, right_map_x, right_map_y;
     static bool left_map_ready = false;
     static bool right_map_ready = false;
 
-    Mat left_corrected = undistort_leap_frame(left_raw, left_distortion, left_map_x, left_map_y, left_map_ready);
-    Mat right_corrected = undistort_leap_frame(right_raw, right_distortion, right_map_x, right_map_y, right_map_ready);
-
-    if (left_corrected.empty() || right_corrected.empty()) {
-        cerr << "Distortion correction failed." << endl;
-        return;
-    }
-
-    imwrite("streamingData/left_corrected.png", left_corrected);
-    imwrite("streamingData/right_corrected.png", right_corrected);
-
     StereoCalibration calib;
-    if (!load_stereo_calibration("Leapcalib.yml", calib, left_corrected.size())) {
+    if (!load_stereo_calibration("Leapcalib.yml", calib, frames.front().leftRaw.size())) {
         cerr << "Skipping disparity/depth reconstruction due to missing calibration." << endl;
         return;
     }
 
-    Mat left_rect, right_rect;
-    remap(left_corrected, left_rect, calib.map1x, calib.map1y, INTER_LINEAR, BORDER_CONSTANT, Scalar(0));
-    remap(right_corrected, right_rect, calib.map2x, calib.map2y, INTER_LINEAR, BORDER_CONSTANT, Scalar(0));
+    auto fused_cloud = boost::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+    pcl::PointCloud<pcl::PointXYZ>::Ptr reference_cloud;
+    int accepted_frames = 0;
+    int skipped_frames = 0;
+    DisparityResult last_disparity;
 
-    imwrite("streamingData/left_rectified.png", left_rect);
-    imwrite("streamingData/right_rectified.png", right_rect);
+    for (size_t i = 0; i < frames.size(); ++i) {
+        const CapturedFrame& frame = frames[i];
+        Mat left_corrected = undistort_leap_frame(frame.leftRaw, frame.leftDistortion, left_map_x, left_map_y, left_map_ready);
+        Mat right_corrected = undistort_leap_frame(frame.rightRaw, frame.rightDistortion, right_map_x, right_map_y, right_map_ready);
 
-    DisparityResult disparity = compute_disparity_quality(left_rect, right_rect);
-    write_disparity_outputs(disparity);
+        if (left_corrected.empty() || right_corrected.empty()) {
+            skipped_frames++;
+            continue;
+        }
 
-    Mat xyz;
-    reprojectImageTo3D(disparity.disparity32, xyz, calib.Q, true, CV_32F);
+        Mat left_rect, right_rect;
+        remap(left_corrected, left_rect, calib.map1x, calib.map1y, INTER_LINEAR, BORDER_CONSTANT, Scalar(0));
+        remap(right_corrected, right_rect, calib.map2x, calib.map2y, INTER_LINEAR, BORDER_CONSTANT, Scalar(0));
 
-    auto cloud_raw = build_cloud_from_depth(xyz, disparity.disparity32, disparity.confidence);
-    auto cloud_filtered = filter_point_cloud(cloud_raw);
+        if (i == 0) {
+            imwrite("streamingData/left_corrected.png", left_corrected);
+            imwrite("streamingData/right_corrected.png", right_corrected);
+            imwrite("streamingData/left_rectified.png", left_rect);
+            imwrite("streamingData/right_rectified.png", right_rect);
+        }
 
-    if (!cloud_raw || cloud_raw->empty()) {
-        cerr << "Generated point cloud is empty." << endl;
+        DisparityResult disparity = compute_disparity_quality(left_rect, right_rect, config);
+        Mat xyz;
+        reprojectImageTo3D(disparity.disparity32, xyz, calib.Q, true, CV_32F);
+
+        auto cloud_raw = build_cloud_from_depth(xyz,
+                                                disparity.disparity32,
+                                                disparity.confidence,
+                                                disparity.roi,
+                                                disparity.adaptiveConfidenceThreshold);
+        auto frame_cloud = filter_point_cloud(cloud_raw, config);
+
+        if (!frame_cloud || frame_cloud->empty()) {
+            skipped_frames++;
+            continue;
+        }
+
+        if (!reference_cloud || reference_cloud->empty()) {
+            *fused_cloud += *frame_cloud;
+            reference_cloud = frame_cloud;
+            accepted_frames++;
+            last_disparity = disparity;
+            continue;
+        }
+
+        pcl::PointCloud<pcl::PointXYZ>::Ptr aligned_cloud;
+        Eigen::Matrix4f icp_transform = Eigen::Matrix4f::Identity();
+        double fitness_score = std::numeric_limits<double>::infinity();
+
+        if (!register_with_icp(frame_cloud, reference_cloud, config, aligned_cloud, icp_transform, fitness_score)) {
+            skipped_frames++;
+            continue;
+        }
+
+        *fused_cloud += *aligned_cloud;
+        reference_cloud = aligned_cloud;
+        accepted_frames++;
+        last_disparity = disparity;
+    }
+
+    fused_cloud->width = static_cast<uint32_t>(fused_cloud->size());
+    fused_cloud->height = 1;
+    fused_cloud->is_dense = false;
+
+    if (!fused_cloud || fused_cloud->empty()) {
+        cerr << "Generated fused point cloud is empty." << endl;
         return;
     }
 
-    pcl::io::savePCDFileBinary("streamingData/cloud_raw.pcd", *cloud_raw);
+    auto cloud_filtered = filter_point_cloud(fused_cloud, config);
+    write_disparity_outputs(last_disparity);
+
+    FileStorage summary("streamingData/reconstruction_summary.yml", FileStorage::WRITE);
+    summary << "quality_mode" << (mode == ReconstructionMode::HighQuality ? QUALITY_MODE_HIGH : QUALITY_MODE_PREVIEW);
+    summary << "captured_frames" << static_cast<int>(frames.size());
+    summary << "accepted_frames" << accepted_frames;
+    summary << "skipped_frames" << skipped_frames;
+    summary << "voxel_leaf_size" << config.voxelLeafSize;
+    summary.release();
+
+    pcl::io::savePCDFileBinary("streamingData/cloud_raw.pcd", *fused_cloud);
     if (cloud_filtered && !cloud_filtered->empty()) {
         pcl::io::savePCDFileBinary("streamingData/cloud_filtered.pcd", *cloud_filtered);
     }
 
-    cout << "Pipeline complete: corrected, rectified, disparity, and cloud outputs are in streamingData/." << endl;
+    cout << "Pipeline complete: fused reconstruction generated from " << accepted_frames
+         << " frame(s), skipped " << skipped_frames << ". Outputs are in streamingData/." << endl;
 }
 
 void handle_image_event(const LEAP_IMAGE_EVENT* image_event) {
@@ -354,6 +587,20 @@ void handle_image_event(const LEAP_IMAGE_EVENT* image_event) {
         g_latest_left_distortion = *image_event->image[0].distortion_matrix;
         g_latest_right_distortion = *image_event->image[1].distortion_matrix;
         g_has_frame = true;
+
+        g_image_event_counter++;
+        if ((g_image_event_counter % FRAME_SAMPLE_STRIDE) == 0) {
+            CapturedFrame captured;
+            captured.leftRaw = left_copy;
+            captured.rightRaw = right_copy;
+            captured.leftDistortion = *image_event->image[0].distortion_matrix;
+            captured.rightDistortion = *image_event->image[1].distortion_matrix;
+            captured.frameId = g_image_event_counter;
+            g_captured_frames.push_back(std::move(captured));
+            while (g_captured_frames.size() > MAX_CAPTURED_FRAMES) {
+                g_captured_frames.pop_front();
+            }
+        }
     }
 
     Mat preview(left.rows, left.cols * 2, CV_8UC1);
@@ -432,19 +679,22 @@ int main() {
     g_running = false;
     poller.join();
 
-    Mat left_raw, right_raw;
-    LEAP_DISTORTION_MATRIX left_distortion{}, right_distortion{};
+    vector<CapturedFrame> frames;
     {
         lock_guard<mutex> lock(g_frame_mutex);
-        if (g_has_frame) {
-            left_raw = g_latest_left_raw.clone();
-            right_raw = g_latest_right_raw.clone();
-            left_distortion = g_latest_left_distortion;
-            right_distortion = g_latest_right_distortion;
+        frames.assign(g_captured_frames.begin(), g_captured_frames.end());
+        if (frames.empty() && g_has_frame) {
+            CapturedFrame fallback;
+            fallback.leftRaw = g_latest_left_raw.clone();
+            fallback.rightRaw = g_latest_right_raw.clone();
+            fallback.leftDistortion = g_latest_left_distortion;
+            fallback.rightDistortion = g_latest_right_distortion;
+            fallback.frameId = g_image_event_counter;
+            frames.push_back(std::move(fallback));
         }
     }
 
-    process_pipeline(left_raw, right_raw, left_distortion, right_distortion);
+    process_pipeline(frames);
 
     LeapCloseConnection(g_connection);
     LeapDestroyConnection(g_connection);
