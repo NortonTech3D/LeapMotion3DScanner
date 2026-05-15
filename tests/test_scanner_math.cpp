@@ -93,13 +93,21 @@ int main() {
     }
 
     {
-        const auto p = scanner::depth_to_point(-1.0475570660838274f, 10, 20, 0.66999066565804488f,
-                                               0.70185345602029203f, 181.39592173744651f,
+        const auto p = scanner::depth_to_point(0.0f, 10, 20, 1.0f, 0.0f, 181.39592173744651f,
                                                181.39592173744651f, 317.38099136734206f,
                                                138.35989671763309f);
         failures += run_test("depth denominator guard x", nearly_equal(p.x, 0.0f));
         failures += run_test("depth denominator guard y", nearly_equal(p.y, 0.0f));
         failures += run_test("depth denominator guard z", nearly_equal(p.z, 0.0f));
+    }
+
+    {
+        const auto p = scanner::depth_to_point(0.0f, 10, 20, 1.0f, 5e-7f, 181.39592173744651f,
+                                               181.39592173744651f, 317.38099136734206f,
+                                               138.35989671763309f);
+        failures += run_test("depth near-zero denominator guard x", nearly_equal(p.x, 0.0f));
+        failures += run_test("depth near-zero denominator guard y", nearly_equal(p.y, 0.0f));
+        failures += run_test("depth near-zero denominator guard z", nearly_equal(p.z, 0.0f));
     }
 
     {

@@ -8,8 +8,8 @@
 namespace scanner {
 
 namespace {
-constexpr float kDenominatorEpsilon = 1e-12f;
-constexpr float kFocalLengthEpsilon = 1e-12f;
+constexpr float kDenominatorEpsilon = 1e-6f;
+constexpr float kFocalLengthEpsilon = 1e-6f;
 }
 
 CalibrationCoord calibration_coord(unsigned int x,

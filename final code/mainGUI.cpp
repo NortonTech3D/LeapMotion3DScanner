@@ -33,15 +33,37 @@ static std::atomic<bool> g_running(false);
 
 static void handleImageEvent(const LEAP_IMAGE_EVENT* image_event)
 {
-    uint32_t width  = image_event->image[0].properties.width;
-    uint32_t height = image_event->image[0].properties.height;
+    if (!image_event) {
+        return;
+    }
+
+    const uint32_t left_width = image_event->image[0].properties.width;
+    const uint32_t left_height = image_event->image[0].properties.height;
+    const uint32_t right_width = image_event->image[1].properties.width;
+    const uint32_t right_height = image_event->image[1].properties.height;
+    if (left_width == 0 || left_height == 0 || right_width == 0 || right_height == 0) {
+        return;
+    }
+    if (left_width != right_width || left_height != right_height) {
+        return;
+    }
+
+    const size_t frame_bytes = static_cast<size_t>(left_width) * static_cast<size_t>(left_height);
+    const size_t left_offset = static_cast<size_t>(image_event->image[0].offset);
+    const size_t right_offset = static_cast<size_t>(image_event->image[1].offset);
+    if (left_offset > g_image_buffer.size() || right_offset > g_image_buffer.size()) {
+        return;
+    }
+    if (frame_bytes > g_image_buffer.size() - left_offset || frame_bytes > g_image_buffer.size() - right_offset) {
+        return;
+    }
 
     const uint8_t* left_pixels  = g_image_buffer.data() + image_event->image[0].offset;
     const uint8_t* right_pixels = g_image_buffer.data() + image_event->image[1].offset;
 
     // Clone before any I/O since the buffer is reused each frame
-    Mat leftMat  = Mat(height, width, CV_8UC1, const_cast<uint8_t*>(left_pixels)).clone();
-    Mat rightMat = Mat(height, width, CV_8UC1, const_cast<uint8_t*>(right_pixels)).clone();
+    Mat leftMat  = Mat(static_cast<int>(left_height), static_cast<int>(left_width), CV_8UC1, const_cast<uint8_t*>(left_pixels)).clone();
+    Mat rightMat = Mat(static_cast<int>(right_height), static_cast<int>(right_width), CV_8UC1, const_cast<uint8_t*>(right_pixels)).clone();
 
     Mat big(Size(1280, 240), CV_8UC1);
     leftMat.copyTo(big(cv::Rect(0, 0, 640, 240)));
