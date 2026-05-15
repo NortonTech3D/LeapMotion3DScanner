@@ -27,3 +27,11 @@
 *.exe
 *.out
 *.app
+
+# CMake/build outputs
+build/
+build-tests/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Testing/

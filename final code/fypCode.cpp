@@ -568,14 +568,39 @@ void process_pipeline(const vector<CapturedFrame>& frames) {
 }
 
 void handle_image_event(const LEAP_IMAGE_EVENT* image_event) {
-    const uint32_t width = image_event->image[0].properties.width;
-    const uint32_t height = image_event->image[0].properties.height;
+    if (!image_event) {
+        return;
+    }
+
+    const uint32_t left_width = image_event->image[0].properties.width;
+    const uint32_t left_height = image_event->image[0].properties.height;
+    const uint32_t right_width = image_event->image[1].properties.width;
+    const uint32_t right_height = image_event->image[1].properties.height;
+    if (left_width == 0 || left_height == 0 || right_width == 0 || right_height == 0) {
+        return;
+    }
+    if (left_width != right_width || left_height != right_height) {
+        return;
+    }
+    if (!image_event->image[0].distortion_matrix || !image_event->image[1].distortion_matrix) {
+        return;
+    }
+
+    const size_t frame_bytes = static_cast<size_t>(left_width) * static_cast<size_t>(left_height);
+    const size_t left_offset = static_cast<size_t>(image_event->image[0].offset);
+    const size_t right_offset = static_cast<size_t>(image_event->image[1].offset);
+    if (left_offset > g_image_buffer.size() || right_offset > g_image_buffer.size()) {
+        return;
+    }
+    if (frame_bytes > g_image_buffer.size() - left_offset || frame_bytes > g_image_buffer.size() - right_offset) {
+        return;
+    }
 
     const uint8_t* left_pixels = g_image_buffer.data() + image_event->image[0].offset;
     const uint8_t* right_pixels = g_image_buffer.data() + image_event->image[1].offset;
 
-    Mat left(height, width, CV_8UC1, const_cast<uint8_t*>(left_pixels));
-    Mat right(height, width, CV_8UC1, const_cast<uint8_t*>(right_pixels));
+    Mat left(static_cast<int>(left_height), static_cast<int>(left_width), CV_8UC1, const_cast<uint8_t*>(left_pixels));
+    Mat right(static_cast<int>(right_height), static_cast<int>(right_width), CV_8UC1, const_cast<uint8_t*>(right_pixels));
 
     Mat left_copy = left.clone();
     Mat right_copy = right.clone();

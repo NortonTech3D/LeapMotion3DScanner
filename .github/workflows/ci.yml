@@ -26,6 +26,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Ensure required build dependency (OpenCV) is installed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            if ! pkg-config --exists opencv4; then
+              sudo apt-get update
+              sudo apt-get install -y libopencv-dev
+            fi
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            if ! brew list opencv >/dev/null 2>&1; then
+              brew update
+              brew install opencv
+            fi
+          fi
+
+      - name: Configure top-level build
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            OPENCV_PREFIX="$(brew --prefix opencv)"
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DOpenCV_DIR="${OPENCV_PREFIX}/lib/cmake/opencv4"
+          else
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          fi
+
       - name: Configure tests
         run: cmake -S tests -B build-tests -DCMAKE_BUILD_TYPE=Release
 
