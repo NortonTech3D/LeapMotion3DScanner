@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <string>
 
 namespace {
@@ -33,6 +34,15 @@ int main() {
         const auto coord = scanner::calibration_coord(319, 119, 320, 120);
         failures += run_test("calibration max x", nearly_equal(coord.x, 1.99375f));
         failures += run_test("calibration max y", nearly_equal(coord.y, 0.99166667f, 1e-5f));
+    }
+
+    {
+        const auto coord_zero_width = scanner::calibration_coord(5, 8, 0, 120);
+        const auto coord_zero_height = scanner::calibration_coord(5, 8, 320, 0);
+        failures += run_test("calibration zero width x", nearly_equal(coord_zero_width.x, 0.0f));
+        failures += run_test("calibration zero width y", nearly_equal(coord_zero_width.y, 0.0f));
+        failures += run_test("calibration zero height x", nearly_equal(coord_zero_height.x, 0.0f));
+        failures += run_test("calibration zero height y", nearly_equal(coord_zero_height.y, 0.0f));
     }
 
     {
@@ -90,6 +100,40 @@ int main() {
         failures += run_test("depth denominator guard x", nearly_equal(p.x, 0.0f));
         failures += run_test("depth denominator guard y", nearly_equal(p.y, 0.0f));
         failures += run_test("depth denominator guard z", nearly_equal(p.z, 0.0f));
+    }
+
+    {
+        const auto p_zero_fx = scanner::depth_to_point(2.5f, 10, 20, 0.6f, 0.7f, 0.0f, 181.3f, 317.3f, 138.3f);
+        failures += run_test("depth zero fx guard x", nearly_equal(p_zero_fx.x, 0.0f));
+        failures += run_test("depth zero fx guard y", nearly_equal(p_zero_fx.y, 0.0f));
+        failures += run_test("depth zero fx guard z", nearly_equal(p_zero_fx.z, 0.0f));
+
+        const auto p_zero_fy = scanner::depth_to_point(2.5f, 10, 20, 0.6f, 0.7f, 181.3f, 0.0f, 317.3f, 138.3f);
+        failures += run_test("depth zero fy guard x", nearly_equal(p_zero_fy.x, 0.0f));
+        failures += run_test("depth zero fy guard y", nearly_equal(p_zero_fy.y, 0.0f));
+        failures += run_test("depth zero fy guard z", nearly_equal(p_zero_fy.z, 0.0f));
+    }
+
+    {
+        const auto p_non_finite = scanner::depth_to_point(std::numeric_limits<float>::quiet_NaN(),
+                                                          10,
+                                                          20,
+                                                          0.66999066565804488f,
+                                                          0.70185345602029203f,
+                                                          181.39592173744651f,
+                                                          181.39592173744651f,
+                                                          317.38099136734206f,
+                                                          138.35989671763309f);
+        failures += run_test("depth non-finite guard x", nearly_equal(p_non_finite.x, 0.0f));
+        failures += run_test("depth non-finite guard y", nearly_equal(p_non_finite.y, 0.0f));
+        failures += run_test("depth non-finite guard z", nearly_equal(p_non_finite.z, 0.0f));
+    }
+
+    {
+        const auto j = scanner::frame_filename("frame_", -2, ".bin");
+        const auto k = scanner::frame_filename("frame_", std::numeric_limits<int>::max(), ".dat");
+        failures += run_test("filename clamp below zero", j == "frame_0.bin");
+        failures += run_test("filename int max safe increment", k == "frame_2147483648.dat");
     }
 
     if (failures == 0) {
