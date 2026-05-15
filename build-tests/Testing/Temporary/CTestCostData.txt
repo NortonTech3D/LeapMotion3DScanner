@@ -1,2 +1,2 @@
-scanner_math_tests 4 0.000553094
+scanner_math_tests 3 0.000601918
 ---
