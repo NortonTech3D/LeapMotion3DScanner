@@ -224,10 +224,10 @@ int main() {
     }
 
     {
-        const auto p_near_zero_denominator = scanner::depth_to_point(1.0f, 10, 20, 1.0f, -1.0f + 5e-13f, 181.3f, 181.3f, 317.3f, 138.3f);
+        const auto p_near_zero_denominator = scanner::depth_to_point(0.0f, 10, 20, 1.0f, 5e-13f, 181.3f, 181.3f, 317.3f, 138.3f);
         tests.check(3021, "depth near-zero denominator guard", nearly_equal(p_near_zero_denominator.z, 0.0f));
 
-        const auto p_small_non_zero_denominator = scanner::depth_to_point(1.0f, 10, 20, 1.0f, -1.0f + 2e-12f, 181.3f, 181.3f, 317.3f, 138.3f);
+        const auto p_small_non_zero_denominator = scanner::depth_to_point(0.0f, 10, 20, 1.0f, 2e-12f, 181.3f, 181.3f, 317.3f, 138.3f);
         tests.check(3022,
                     "depth small non-zero denominator accepted",
                     std::isfinite(p_small_non_zero_denominator.z) && !nearly_equal(p_small_non_zero_denominator.z, 0.0f));
