@@ -1,79 +1,19 @@
-Start testing: May 17 20:41 UTC
+Start testing: May 15 00:08 UTC
 ----------------------------------------------------------
 1/1 Testing: scanner_math_tests
 1/1 Test: scanner_math_tests
 Command: "/home/runner/work/LeapMotion3DScanner/LeapMotion3DScanner/build-tests/scanner_math_tests"
 Directory: /home/runner/work/LeapMotion3DScanner/LeapMotion3DScanner/build-tests
-"scanner_math_tests" start time: May 17 20:41 UTC
+"scanner_math_tests" start time: May 15 00:08 UTC
 Output:
 ----------------------------------------------------------
-PASS [T1001] calibration origin x
-PASS [T1002] calibration origin y
-PASS [T1003] calibration max x
-PASS [T1004] calibration max y
-PASS [T1005] calibration zero width x
-PASS [T1006] calibration zero width y
-PASS [T1007] calibration zero height x
-PASS [T1008] calibration zero height y
-PASS [T1009] calibration midpoint x
-PASS [T1010] calibration midpoint y
-PASS [T1011] calibration x monotonic
-PASS [T1012] calibration y stable
-PASS [T2001] bounds inside
-PASS [T2002] bounds left border
-PASS [T2003] bounds right exclusive
-PASS [T2004] bounds bottom exclusive
-PASS [T2005] bounds negative
-PASS [T2006] bounds zero width
-PASS [T2007] bounds zero height
-PASS [T2008] bounds negative dimensions
-PASS [T3001] depth z
-PASS [T3002] depth x
-PASS [T3003] depth y
-PASS [T4001] filename first
-PASS [T4002] filename indexed
-PASS [T4003] filename negative index
-PASS [T4004] filename large index
-PASS [T3004] depth denominator guard x
-PASS [T3005] depth denominator guard y
-PASS [T3006] depth denominator guard z
-PASS [T3007] depth zero fx guard x
-PASS [T3008] depth zero fx guard y
-PASS [T3009] depth zero fx guard z
-PASS [T3010] depth zero fy guard x
-PASS [T3011] depth zero fy guard y
-PASS [T3012] depth zero fy guard z
-PASS [T3013] depth non-finite depth guard x
-PASS [T3014] depth non-finite depth guard y
-PASS [T3015] depth non-finite depth guard z
-PASS [T4005] filename clamp below zero
-PASS [T4006] filename int max safe increment
-PASS [T4007] filename empty prefix extension
-PASS [T3016] depth non-finite dc1 guard
-PASS [T3017] depth non-finite dc2 guard
-PASS [T3018] depth non-finite px guard
-PASS [T3019] depth near-zero fx guard
-PASS [T3020] depth small non-zero fx accepted
-PASS [T3023] depth small non-zero fx x finite
-PASS [T3024] depth small non-zero fx y finite
-PASS [T3027] depth small non-zero fx x expected
-PASS [T3028] depth small non-zero fx y expected
-PASS [T3029] depth small non-zero fx z expected
-PASS [T3021] depth near-zero denominator guard
-PASS [T3022] depth small non-zero denominator accepted
-PASS [T3025] depth small non-zero denominator x finite
-PASS [T3026] depth small non-zero denominator y finite
-PASS [T3030] depth small non-zero denominator x expected
-PASS [T3031] depth small non-zero denominator y expected
-PASS [T3032] depth small non-zero denominator z expected
-SUMMARY: 59/59 checks passed
-RESULT: PASS
+All scanner_math tests passed
 <end of output>
 Test time =   0.00 sec
 ----------------------------------------------------------
 Test Passed.
-"scanner_math_tests" end time: May 17 20:41 UTC
+"scanner_math_tests" end time: May 15 00:08 UTC
 "scanner_math_tests" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-End testing: May 17 20:41 UTC
+End testing: May 15 00:08 UTC
