@@ -40,7 +40,7 @@ public:
             std::cerr << " E" << code;
         }
         std::cerr << std::endl;
-        return std::min(failures_, EXIT_FAILURE);
+        return EXIT_FAILURE;
     }
 
 private:
@@ -221,6 +221,8 @@ int main() {
 
         const auto p_non_zero_focal = scanner::depth_to_point(2.5f, 10, 20, 0.6f, 0.7f, 1e-11f, 181.3f, 317.3f, 138.3f);
         tests.check(3020, "depth small non-zero fx accepted", std::isfinite(p_non_zero_focal.z) && !nearly_equal(p_non_zero_focal.z, 0.0f));
+        tests.check(3023, "depth small non-zero fx x finite", std::isfinite(p_non_zero_focal.x));
+        tests.check(3024, "depth small non-zero fx y finite", std::isfinite(p_non_zero_focal.y));
     }
 
     {
@@ -231,6 +233,8 @@ int main() {
         tests.check(3022,
                     "depth small non-zero denominator accepted",
                     std::isfinite(p_small_non_zero_denominator.z) && !nearly_equal(p_small_non_zero_denominator.z, 0.0f));
+        tests.check(3025, "depth small non-zero denominator x finite", std::isfinite(p_small_non_zero_denominator.x));
+        tests.check(3026, "depth small non-zero denominator y finite", std::isfinite(p_small_non_zero_denominator.y));
     }
 
     return tests.finish();
