@@ -19,6 +19,15 @@ bool nearly_equal(float a, float b, float eps = 1e-6f) {
     return std::fabs(a - b) <= eps;
 }
 
+bool nearly_equal_relative(float a, float b, float abs_eps = 1e-6f, float rel_eps = 1e-5f) {
+    const float diff = std::fabs(a - b);
+    if (diff <= abs_eps) {
+        return true;
+    }
+    const float scale = std::max(std::fabs(a), std::fabs(b));
+    return diff <= scale * rel_eps;
+}
+
 class TestReporter {
 public:
     void check(int code, const std::string& name, bool passed) {
@@ -227,9 +236,21 @@ int main() {
 
         const auto p_non_zero_focal = scanner::depth_to_point(
             2.5f, 10, 20, 0.6f, 0.7f, kSmallNonZeroFocalLength, 181.3f, 317.3f, 138.3f);
+        const float expected_z_non_zero_focal = 1.0f / (2.5f * 0.6f + 0.7f);
+        const float expected_x_non_zero_focal =
+            expected_z_non_zero_focal * (10.0f - 317.3f) / kSmallNonZeroFocalLength;
+        const float expected_y_non_zero_focal =
+            expected_z_non_zero_focal * (20.0f - 138.3f) / 181.3f;
         tests.check(3020, "depth small non-zero fx accepted", std::isfinite(p_non_zero_focal.z) && !nearly_equal(p_non_zero_focal.z, 0.0f));
         tests.check(3023, "depth small non-zero fx x finite", std::isfinite(p_non_zero_focal.x));
         tests.check(3024, "depth small non-zero fx y finite", std::isfinite(p_non_zero_focal.y));
+        tests.check(3027,
+                    "depth small non-zero fx x expected",
+                    nearly_equal_relative(p_non_zero_focal.x, expected_x_non_zero_focal, 1e3f, 1e-5f));
+        tests.check(
+            3028, "depth small non-zero fx y expected", nearly_equal_relative(p_non_zero_focal.y, expected_y_non_zero_focal));
+        tests.check(
+            3029, "depth small non-zero fx z expected", nearly_equal_relative(p_non_zero_focal.z, expected_z_non_zero_focal));
     }
 
     {
@@ -239,11 +260,25 @@ int main() {
 
         const auto p_small_non_zero_denominator = scanner::depth_to_point(
             0.0f, 10, 20, 1.0f, kSmallNonZeroDenominator, 181.3f, 181.3f, 317.3f, 138.3f);
+        const float expected_z_small_non_zero_denominator = 1.0f / kSmallNonZeroDenominator;
+        const float expected_x_small_non_zero_denominator =
+            expected_z_small_non_zero_denominator * (10.0f - 317.3f) / 181.3f;
+        const float expected_y_small_non_zero_denominator =
+            expected_z_small_non_zero_denominator * (20.0f - 138.3f) / 181.3f;
         tests.check(3022,
                     "depth small non-zero denominator accepted",
                     std::isfinite(p_small_non_zero_denominator.z) && !nearly_equal(p_small_non_zero_denominator.z, 0.0f));
         tests.check(3025, "depth small non-zero denominator x finite", std::isfinite(p_small_non_zero_denominator.x));
         tests.check(3026, "depth small non-zero denominator y finite", std::isfinite(p_small_non_zero_denominator.y));
+        tests.check(3030,
+                    "depth small non-zero denominator x expected",
+                    nearly_equal_relative(p_small_non_zero_denominator.x, expected_x_small_non_zero_denominator, 1.0f, 1e-5f));
+        tests.check(3031,
+                    "depth small non-zero denominator y expected",
+                    nearly_equal_relative(p_small_non_zero_denominator.y, expected_y_small_non_zero_denominator, 1.0f, 1e-5f));
+        tests.check(3032,
+                    "depth small non-zero denominator z expected",
+                    nearly_equal_relative(p_small_non_zero_denominator.z, expected_z_small_non_zero_denominator, 1.0f, 1e-5f));
     }
 
     return tests.finish();
